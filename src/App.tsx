@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ShoppingBag } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { Home } from './components/Home';
+import { Search } from './components/Search';
 import { RestaurantMenu } from './components/RestaurantMenu';
 import { CartDrawer } from './components/CartDrawer';
 import { Checkout } from './components/Checkout';
@@ -111,9 +112,21 @@ function AppContent() {
                 onOpenMatchmaker={() => setIsMatchmakerOpen(true)}
               />
             )}
-            {activeTab === 'search' && <div className="p-6 text-center text-white/50 mt-20">Search functionality coming soon...</div>}
+            {activeTab === 'search' && (
+              <Search 
+                onSelectRestaurant={setSelectedRestaurant}
+                favorites={favorites}
+                toggleFavorite={toggleFavorite}
+              />
+            )}
             {activeTab === 'orders' && <Orders />}
-            {activeTab === 'profile' && <Profile />}
+            {activeTab === 'profile' && (
+              <Profile 
+                favorites={favorites}
+                toggleFavorite={toggleFavorite}
+                onSelectRestaurant={setSelectedRestaurant}
+              />
+            )}
           </motion.div>
         )}
       </AnimatePresence>
