@@ -1,0 +1,132 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required) - immutable
+    //   - email: string (required) - immutable
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - cravePoints: number (required)
+    //   - createdAt: timestamp (required) - immutable
+    //
+    // Collection: users/{userId}/orders
+    // Document ID: {orderId}
+    // Fields:
+    //   - userId: string (required) - immutable
+    //   - restaurantId: string (required) - immutable
+    //   - restaurantName: string (required) - immutable
+    //   - items: string (required) - JSON stringified items - immutable
+    //   - total: number (required) - immutable
+    //   - status: string (required) - enum ['preparing', 'on_the_way', 'delivered']
+    //   - deliveryAddress: string (required) - immutable
+    //   - createdAt: timestamp (required) - immutable
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'cravePoints', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) && data.email.size() < 100 &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && isValidUrl(data.photoURL) && data.photoURL.size() < 500)) &&
+             data.cravePoints is number && data.cravePoints >= 0 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return hasRequiredFields(['userId', 'restaurantId', 'restaurantName', 'items', 'total', 'status', 'deliveryAddress', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.restaurantId is string && data.restaurantId.size() > 0 && data.restaurantId.size() < 100 &&
+             data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100 &&
+             data.items is string && data.items.size() > 0 && data.items.size() < 10000 && // JSON stringified items
+             data.total is number && data.total >= 0 &&
+             data.status in ['preparing', 'on_the_way', 'delivered'] &&
+             data.deliveryAddress is string && data.deliveryAddress.size() > 0 && data.deliveryAddress.size() < 500 &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      
+      allow create: if isOwner(userId) && 
+                       isValidUser(request.resource.data) && 
+                       uidUnchanged() &&
+                       request.resource.data.uid == userId;
+                       
+      allow update: if isOwner(userId) && 
+                       isValidUser(request.resource.data) && 
+                       uidNotModified() &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       request.resource.data.email == resource.data.email;
+                       
+      allow delete: if false; // Users cannot be deleted from client
+
+      match /orders/{orderId} {
+        allow read: if isOwner(userId);
+        
+        allow create: if isOwner(userId) && 
+                         isValidOrder(request.resource.data) &&
+                         request.resource.data.userId == userId;
+                         
+        allow update: if isOwner(userId) && 
+                         isValidOrder(request.resource.data) &&
+                         request.resource.data.userId == resource.data.userId &&
+                         request.resource.data.restaurantId == resource.data.restaurantId &&
+                         request.resource.data.restaurantName == resource.data.restaurantName &&
+                         request.resource.data.items == resource.data.items &&
+                         request.resource.data.total == resource.data.total &&
+                         request.resource.data.deliveryAddress == resource.data.deliveryAddress &&
+                         request.resource.data.createdAt == resource.data.createdAt;
+                         
+        allow delete: if false; // Orders cannot be deleted
+      }
+    }
+  }
+}
