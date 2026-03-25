@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "npx vite build",
+    "lint": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@supabase/supabase-js": "^2.100.0",
     "@tailwindcss/vite": "^4.1.14",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",

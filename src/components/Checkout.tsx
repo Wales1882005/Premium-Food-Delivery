@@ -4,7 +4,10 @@ import { ArrowLeft, MapPin, CreditCard, CheckCircle2, Clock, Navigation, Loader2
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { CartItem, Restaurant } from '../types';
+import { User as FirebaseUser } from 'firebase/auth';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface CheckoutProps {
   key?: string;
@@ -20,7 +23,7 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
   const [address, setAddress] = useState("123 Design Avenue, Suite 4B, San Francisco, CA 94105");
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   
-  const { user, updateCravePoints } = useAuth();
+  const { user, authType, updateCravePoints } = useAuth();
   
   const mapRef = useRef<HTMLDivElement>(null);
   const pinX = useMotionValue(0);
@@ -44,26 +47,46 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
       
       setIsPlacingOrder(true);
       try {
-        const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const orderRef = doc(db, 'users', user.uid, 'orders', orderId);
-        
-        await setDoc(orderRef, {
-          userId: user.uid,
-          restaurantId: restaurant.id,
-          restaurantName: restaurant.name,
-          items: JSON.stringify(cart),
-          total: total,
-          status: 'preparing',
-          deliveryAddress: address,
-          createdAt: serverTimestamp()
-        });
+        if (authType === 'firebase') {
+          const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const orderRef = doc(db, 'users', (user as FirebaseUser).uid, 'orders', orderId);
+          
+          await setDoc(orderRef, {
+            userId: (user as FirebaseUser).uid,
+            restaurantId: restaurant.id,
+            restaurantName: restaurant.name,
+            items: JSON.stringify(cart),
+            total: total,
+            status: 'preparing',
+            deliveryAddress: address,
+            createdAt: serverTimestamp()
+          });
+        } else if (authType === 'supabase') {
+          const { error } = await supabase
+            .from('orders')
+            .insert({
+              user_id: (user as SupabaseUser).id,
+              restaurant_id: restaurant.id,
+              restaurant_name: restaurant.name,
+              items: cart, // Supabase handles JSONB
+              total: total,
+              status: 'preparing',
+              delivery_address: address
+            });
+          
+          if (error) throw error;
+        }
         
         // Award points
         await updateCravePoints(Math.floor(total * 10));
         
         setStep(3);
       } catch (error) {
-        handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/orders`);
+        if (authType === 'firebase') {
+          handleFirestoreError(error, OperationType.CREATE, `users/${(user as FirebaseUser).uid}/orders`);
+        } else {
+          console.error('Supabase order error:', error);
+        }
       } finally {
         setIsPlacingOrder(false);
       }

@@ -16,6 +16,7 @@ import { BottomNav } from './components/BottomNav';
 import { Orders } from './components/Orders';
 import { Profile } from './components/Profile';
 import { AIMatchmaker } from './components/AIMatchmaker';
+import { SuggestionModal } from './components/SuggestionModal';
 import { Restaurant, MenuItem, CartItem } from './types';
 import { AuthProvider } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -28,6 +29,7 @@ function AppContent() {
   const [isCheckout, setIsCheckout] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isMatchmakerOpen, setIsMatchmakerOpen] = useState(false);
+  const [isSuggestionModalOpen, setIsSuggestionModalOpen] = useState(false);
 
   const toggleFavorite = (restaurantId: string) => {
     setFavorites(prev => 
@@ -96,6 +98,8 @@ function AppContent() {
             restaurant={selectedRestaurant}
             onBack={() => setSelectedRestaurant(null)}
             onAddToCart={handleAddToCart}
+            isFavorite={favorites.includes(selectedRestaurant.id)}
+            onToggleFavorite={toggleFavorite}
           />
         ) : (
           <motion.div
@@ -110,6 +114,8 @@ function AppContent() {
                 favorites={favorites}
                 toggleFavorite={toggleFavorite}
                 onOpenMatchmaker={() => setIsMatchmakerOpen(true)}
+                onOpenSuggestion={() => setIsSuggestionModalOpen(true)}
+                onSeeAllCategories={() => setActiveTab('search')}
               />
             )}
             {activeTab === 'search' && (
@@ -125,6 +131,7 @@ function AppContent() {
                 favorites={favorites}
                 toggleFavorite={toggleFavorite}
                 onSelectRestaurant={setSelectedRestaurant}
+                onOpenSuggestion={() => setIsSuggestionModalOpen(true)}
               />
             )}
           </motion.div>
@@ -141,6 +148,15 @@ function AppContent() {
                 setTimeout(() => handleAddToCart(item), 500);
               }
             }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isSuggestionModalOpen && (
+          <SuggestionModal 
+            isOpen={isSuggestionModalOpen}
+            onClose={() => setIsSuggestionModalOpen(false)}
           />
         )}
       </AnimatePresence>

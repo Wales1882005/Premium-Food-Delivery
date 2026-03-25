@@ -28,6 +28,25 @@ service cloud.firestore {
     //   - deliveryAddress: string (required) - immutable
     //   - createdAt: timestamp (required) - immutable
     //
+    // Collection: suggestions/{suggestionId}
+    // Fields:
+    //   - userId: string (required) - immutable
+    //   - userName: string (required) - immutable
+    //   - foodType: string (required) - immutable
+    //   - restaurantName: string (required) - immutable
+    //   - description: string (optional)
+    //   - createdAt: timestamp (required) - immutable
+    //
+    // Collection: comments/{commentId}
+    // Fields:
+    //   - userId: string (required) - immutable
+    //   - userName: string (required) - immutable
+    //   - userPhoto: string (optional)
+    //   - restaurantId: string (required) - immutable
+    //   - text: string (required)
+    //   - rating: number (required)
+    //   - createdAt: timestamp (required) - immutable
+    //
     // ===============================================================
 
     // ===============================================================
@@ -77,14 +96,35 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return hasRequiredFields(['userId', 'restaurantId', 'restaurantName', 'items', 'total', 'status', 'deliveryAddress', 'createdAt']) &&
-             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
-             data.restaurantId is string && data.restaurantId.size() > 0 && data.restaurantId.size() < 100 &&
+      return hasRequiredFields(['restaurantName', 'items', 'total', 'status', 'createdAt']) &&
+             (!('userId' in data) || (data.userId is string && data.userId.size() < 100)) &&
+             (!('restaurantId' in data) || (data.restaurantId is string && data.restaurantId.size() < 100)) &&
              data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100 &&
-             data.items is string && data.items.size() > 0 && data.items.size() < 10000 && // JSON stringified items
+             data.items is string && data.items.size() > 0 && data.items.size() < 10000 &&
              data.total is number && data.total >= 0 &&
-             data.status in ['preparing', 'on_the_way', 'delivered'] &&
-             data.deliveryAddress is string && data.deliveryAddress.size() > 0 && data.deliveryAddress.size() < 500 &&
+             data.status in ['confirmed', 'preparing', 'on_the_way', 'delivered', 'cancelled'] &&
+             (!('deliveryAddress' in data) || (data.deliveryAddress is string && data.deliveryAddress.size() < 500)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidSuggestion(data) {
+      return hasRequiredFields(['userId', 'userName', 'foodType', 'restaurantName', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             data.foodType is string && data.foodType.size() > 0 && data.foodType.size() < 100 &&
+             data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100 &&
+             (!('description' in data) || (data.description is string && data.description.size() < 1000)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidComment(data) {
+      return hasRequiredFields(['userId', 'userName', 'restaurantId', 'text', 'rating', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             (!('userPhoto' in data) || (data.userPhoto is string && isValidUrl(data.userPhoto) && data.userPhoto.size() < 500)) &&
+             data.restaurantId is string && data.restaurantId.size() > 0 && data.restaurantId.size() < 100 &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 2000 &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
              data.createdAt is timestamp;
     }
 
@@ -127,6 +167,28 @@ service cloud.firestore {
                          
         allow delete: if false; // Orders cannot be deleted
       }
+    }
+
+    match /suggestions/{suggestionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                       isValidSuggestion(request.resource.data) &&
+                       request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && 
+                       isValidComment(request.resource.data) &&
+                       request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+                       request.auth.uid == resource.data.userId &&
+                       isValidComment(request.resource.data) &&
+                       request.resource.data.userId == resource.data.userId &&
+                       request.resource.data.restaurantId == resource.data.restaurantId &&
+                       request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
     }
   }
 }

@@ -17,6 +17,8 @@ export interface Restaurant {
   image: string;
   categories: string[];
   menu: MenuItem[];
+  priceRange: '$' | '$$' | '$$$' | '$$$$';
+  popularity?: number; // 0-100 score for "Mostly Ordered"
 }
 
 export interface CartItem extends MenuItem {

@@ -60,6 +60,9 @@ export function CartDrawer({ isOpen, onClose, cart, updateQuantity, onCheckout }
                       src={item.image}
                       alt={item.name}
                       className="w-20 h-20 object-cover rounded-xl"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080&auto=format&fit=crop';
+                      }}
                     />
                     <div className="flex-1 flex flex-col justify-between">
                       <div>

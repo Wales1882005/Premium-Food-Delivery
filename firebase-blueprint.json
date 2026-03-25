@@ -76,6 +76,35 @@
         }
       },
       "required": ["userId", "restaurantId", "restaurantName", "items", "total", "status", "deliveryAddress", "createdAt"]
+    },
+    "Suggestion": {
+      "title": "Suggestion",
+      "description": "A user's suggestion for new food or restaurants.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "foodType": { "type": "string" },
+        "restaurantName": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "foodType", "restaurantName", "createdAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A user's comment on a restaurant.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string", "format": "uri" },
+        "restaurantId": { "type": "string" },
+        "text": { "type": "string" },
+        "rating": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "restaurantId", "text", "rating", "createdAt"]
     }
   },
   "firestore": {
@@ -86,6 +115,14 @@
     "/users/{userId}/orders/{orderId}": {
       "schema": { "$ref": "#/entities/Order" },
       "description": "Stores orders placed by a specific user."
+    },
+    "/suggestions/{suggestionId}": {
+      "schema": { "$ref": "#/entities/Suggestion" },
+      "description": "Stores user suggestions."
+    },
+    "/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/Comment" },
+      "description": "Stores user comments/reviews for restaurants."
     }
   }
 }

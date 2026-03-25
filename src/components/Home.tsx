@@ -1,8 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Search, Star, Clock, ChevronRight, ArrowRight, Heart, Sparkles } from 'lucide-react';
+import { Search, Star, Clock, ChevronRight, ArrowRight, Heart, Sparkles, Plus, MessageSquare } from 'lucide-react';
+import { toast } from 'sonner';
 import { MOCK_RESTAURANTS, CATEGORIES } from '../data/mockData';
 import { Restaurant } from '../types';
+import { ThreeDCard } from './ThreeDCard';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 
 const DIETARY_FILTERS = ['Vegan', 'Gluten-Free', 'Halal', 'Spicy'];
 
@@ -11,17 +15,56 @@ interface HomeProps {
   favorites: string[];
   toggleFavorite: (id: string) => void;
   onOpenMatchmaker?: () => void;
+  onOpenSuggestion?: () => void;
+  onSeeAllCategories?: () => void;
 }
 
-export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatchmaker }: HomeProps) {
+export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatchmaker, onOpenSuggestion, onSeeAllCategories }: HomeProps) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDietaryFilters, setActiveDietaryFilters] = useState<string[]>([]);
+  const [recentReviews, setRecentReviews] = useState<Record<string, any>>({});
+  const resultsRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const fetchRecentReviews = async () => {
+      const reviews: Record<string, any> = {};
+      for (const restaurant of MOCK_RESTAURANTS) {
+        try {
+          const q = query(
+            collection(db, 'comments'),
+            where('restaurantId', '==', restaurant.id),
+            orderBy('createdAt', 'desc'),
+            limit(1)
+          );
+          const snapshot = await getDocs(q);
+          if (!snapshot.empty) {
+            reviews[restaurant.id] = snapshot.docs[0].data();
+          }
+        } catch (error) {
+          console.error(`Error fetching review for ${restaurant.id}:`, error);
+        }
+      }
+      setRecentReviews(reviews);
+    };
+
+    fetchRecentReviews();
+  }, []);
 
   const toggleDietaryFilter = (filter: string) => {
-    setActiveDietaryFilters(prev => 
-      prev.includes(filter) ? prev.filter(f => f !== filter) : [...prev, filter]
-    );
+    setActiveDietaryFilters(prev => {
+      const isRemoving = prev.includes(filter);
+      const next = isRemoving ? prev.filter(f => f !== filter) : [...prev, filter];
+      
+      // Scroll to results if we are adding a filter
+      if (!isRemoving) {
+        setTimeout(() => {
+          resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
+      
+      return next;
+    });
   };
 
   const filteredRestaurants = useMemo(() => {
@@ -52,14 +95,36 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
     return result;
   }, [selectedCategory, searchQuery, activeDietaryFilters]);
 
+  const topRatedRestaurants = useMemo(() => {
+    return [...MOCK_RESTAURANTS].sort((a, b) => b.rating - a.rating).slice(0, 6);
+  }, []);
+
+  const mostlyOrderedRestaurants = useMemo(() => {
+    return [...MOCK_RESTAURANTS].sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 6);
+  }, []);
+
+  const handleCategoryClick = (catName: string) => {
+    const isActive = selectedCategory === catName;
+    setSelectedCategory(isActive ? null : catName);
+    
+    if (!isActive) {
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  };
+
   return (
     <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-10">
       {/* Hero & Search */}
-      <motion.section 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10"
-      >
+      <div style={{ perspective: "1000px" }}>
+        <motion.section 
+          initial={{ opacity: 0, y: 20, rotateX: 10 }}
+          animate={{ opacity: 1, y: 0, rotateX: 0 }}
+          whileHover={{ rotateX: 2, rotateY: -1 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="relative rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10"
+        >
         {/* Appetizing Background */}
         <div className="absolute inset-0">
           <img 
@@ -122,6 +187,7 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
           </div>
         </div>
       </motion.section>
+      </div>
 
       {/* AI Matchmaker Banner */}
       <motion.section
@@ -145,75 +211,265 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
         </button>
       </motion.section>
 
+      {/* Community Suggestions Banner */}
+      <motion.section
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.08 }}
+        className="bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-3xl p-6 border border-emerald-500/30 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay" />
+        <div className="relative z-10 flex-1">
+          <h2 className="text-2xl font-bold flex items-center gap-2 mb-2">
+            <Plus className="text-emerald-400" /> Community Suggestions
+          </h2>
+          <p className="text-white/80">Have a favorite restaurant or dish we're missing? Let us know and help us grow our community!</p>
+        </div>
+        <button 
+          onClick={onOpenSuggestion}
+          className="relative z-10 bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold hover:scale-105 transition-transform shadow-[0_0_20px_rgba(16,185,129,0.4)] whitespace-nowrap"
+        >
+          Suggest Now
+        </button>
+      </motion.section>
+
+      {/* Trending Now Horizontal Scroll - Moving Marquee */}
+      <section className="space-y-6 overflow-hidden">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Sparkles className="text-primary" size={20} />
+            Trending Now
+          </h2>
+        </div>
+        
+        <div className="relative -mx-6">
+          <motion.div 
+            className="flex gap-6 px-6 w-max"
+            animate={{ x: [0, -1520] }} // 5 cards * (280px + 24px gap) = 1520px
+            transition={{ 
+              duration: 30, 
+              repeat: Infinity, 
+              ease: "linear" 
+            }}
+            whileHover={{ animationPlayState: 'paused' }}
+          >
+            {[...MOCK_RESTAURANTS.slice(0, 5), ...MOCK_RESTAURANTS.slice(0, 5)].map((restaurant, i) => (
+              <motion.div
+                key={`${restaurant.id}-${i}`}
+                onClick={() => onSelectRestaurant(restaurant)}
+                className="min-w-[280px] h-40 rounded-3xl overflow-hidden relative group cursor-pointer border border-white/5"
+              >
+                <img 
+                  src={restaurant.image} 
+                  alt={restaurant.name} 
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                <div className="absolute bottom-4 left-4 right-4">
+                  <h3 className="text-lg font-bold text-white mb-1">{restaurant.name}</h3>
+                  <div className="flex items-center gap-3 text-xs text-white/70">
+                    <span className="flex items-center gap-1"><Star size={12} className="text-yellow-400 fill-yellow-400" /> {restaurant.rating}</span>
+                    <span>•</span>
+                    <span>{restaurant.deliveryTime}</span>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Top Rated Horizontal Scroll */}
+      <section className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Star className="text-yellow-400 fill-yellow-400" size={20} />
+            Top Rated
+          </h2>
+        </div>
+        <div className="flex gap-6 overflow-x-auto pb-4 -mx-6 px-6 hide-scrollbar snap-x">
+          {topRatedRestaurants.map((restaurant, i) => (
+            <motion.div
+              key={`top-${restaurant.id}`}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.1 }}
+              onClick={() => onSelectRestaurant(restaurant)}
+              className="min-w-[220px] h-32 rounded-2xl overflow-hidden relative group cursor-pointer snap-start border border-white/5"
+            >
+              <img 
+                src={restaurant.image} 
+                alt={restaurant.name} 
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+              <div className="absolute bottom-3 left-3 right-3">
+                <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{restaurant.name}</h3>
+                <div className="flex items-center gap-2 text-[10px] text-white/80">
+                  <span className="flex items-center gap-1 font-bold text-yellow-400"><Star size={10} className="fill-current" /> {restaurant.rating}</span>
+                  <span>•</span>
+                  <span>{restaurant.categories[0]}</span>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* Mostly Ordered Horizontal Scroll */}
+      <section className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Heart className="text-red-500 fill-red-500" size={20} />
+            Mostly Ordered
+          </h2>
+        </div>
+        <div className="flex gap-6 overflow-x-auto pb-4 -mx-6 px-6 hide-scrollbar snap-x">
+          {mostlyOrderedRestaurants.map((restaurant, i) => (
+            <motion.div
+              key={`mostly-${restaurant.id}`}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.1 }}
+              onClick={() => onSelectRestaurant(restaurant)}
+              className="min-w-[220px] h-32 rounded-2xl overflow-hidden relative group cursor-pointer snap-start border border-white/5"
+            >
+              <img 
+                src={restaurant.image} 
+                alt={restaurant.name} 
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+              <div className="absolute bottom-3 left-3 right-3">
+                <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{restaurant.name}</h3>
+                <div className="flex items-center gap-2 text-[10px] text-white/80">
+                  <span className="flex items-center gap-1 font-bold text-primary"><Sparkles size={10} className="fill-current" /> Popular</span>
+                  <span>•</span>
+                  <span>{restaurant.deliveryTime}</span>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
       {/* Bento Grid */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         
         {/* Categories (Spans 2 columns on desktop) */}
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-          className="md:col-span-2 bg-surface rounded-3xl p-6 border border-white/5"
-        >
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold">Categories</h2>
-            <button className="text-sm text-primary hover:text-primary-hover flex items-center gap-1">
-              See all <ChevronRight size={16} />
-            </button>
-          </div>
-          <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-2">
-            {CATEGORIES.map((cat, i) => {
-              const isActive = selectedCategory === cat.name;
-              return (
-                <motion.div
-                  key={cat.name}
-                  whileHover={{ y: -4 }}
-                  onClick={() => setSelectedCategory(isActive ? null : cat.name)}
-                  className="min-w-[80px] flex flex-col items-center gap-3 cursor-pointer group"
-                >
-                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl transition-colors border ${
-                    isActive 
-                      ? 'bg-primary/20 border-primary/50' 
-                      : 'bg-white/5 border-white/10 group-hover:bg-primary/10 group-hover:border-primary/30'
-                  }`}>
-                    {cat.icon}
-                  </div>
-                  <span className={`text-sm font-medium transition-colors ${
-                    isActive ? 'text-primary' : 'text-white/80 group-hover:text-white'
-                  }`}>
-                    {cat.name}
-                  </span>
-                </motion.div>
-              );
-            })}
-          </div>
-        </motion.div>
+        <div className="md:col-span-2" style={{ perspective: "1000px" }}>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            whileHover={{ rotateX: 1, rotateY: -1, scale: 1.005 }}
+            transition={{ delay: 0.1 }}
+            className="h-full bg-surface rounded-3xl p-6 border border-white/5 shadow-xl overflow-hidden relative"
+          >
+            <div className="flex justify-between items-center mb-6 relative z-10">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Sparkles className="text-primary" size={20} />
+                Explore Categories
+              </h2>
+              <button 
+                onClick={() => {
+                  if (onSeeAllCategories) {
+                    onSeeAllCategories();
+                  } else {
+                    setSelectedCategory(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+                className="text-sm text-primary hover:text-primary-hover flex items-center gap-1 font-semibold"
+              >
+                See all <ChevronRight size={16} />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 relative z-10">
+              {CATEGORIES.map((cat, i) => {
+                const isActive = selectedCategory === cat.name;
+                return (
+                  <motion.div
+                    key={cat.name}
+                    whileHover={{ y: -4, scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleCategoryClick(cat.name)}
+                    className={`relative h-24 rounded-2xl overflow-hidden cursor-pointer group border-2 transition-all ${
+                      isActive ? 'border-primary shadow-lg shadow-primary/20' : 'border-transparent hover:border-white/20'
+                    }`}
+                  >
+                    <img 
+                      src={cat.image} 
+                      alt={cat.name} 
+                      className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className={`absolute inset-0 bg-gradient-to-t ${isActive ? 'from-primary/80' : 'from-black/80'} to-transparent`} />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-2">
+                      <span className="text-2xl mb-1 drop-shadow-lg">{cat.icon}</span>
+                      <span className="text-xs font-bold uppercase tracking-wider text-white drop-shadow-lg">{cat.name}</span>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </motion.div>
+        </div>
 
         {/* Recently Ordered (1 column) */}
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-          className="bg-gradient-to-br from-primary/20 to-surface rounded-3xl p-6 border border-primary/20 flex flex-col justify-between cursor-pointer hover:border-primary/40 transition-colors relative overflow-hidden group"
-          onClick={() => onSelectRestaurant(MOCK_RESTAURANTS[0])}
-        >
-          <div className="absolute -right-6 -top-6 w-32 h-32 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
-          <div>
-            <div className="bg-primary/20 text-primary text-xs font-bold px-3 py-1 rounded-full w-fit mb-4 backdrop-blur-md border border-primary/20">
-              Order Again
+        <div style={{ perspective: "1000px" }}>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            whileHover={{ rotateX: 5, rotateY: 2, scale: 1.02 }}
+            transition={{ delay: 0.2 }}
+            className="h-full bg-surface rounded-3xl border border-white/5 shadow-xl overflow-hidden group cursor-pointer relative"
+            onClick={() => onSelectRestaurant(MOCK_RESTAURANTS[0])}
+          >
+            <div className="absolute inset-0">
+              <img 
+                src={MOCK_RESTAURANTS[0].image} 
+                alt="Last order" 
+                className="w-full h-full object-cover opacity-40 group-hover:scale-110 transition-transform duration-700"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/60 to-transparent" />
             </div>
-            <h2 className="text-2xl font-bold leading-tight mb-2">Sakura Sushi House</h2>
-            <p className="text-white/60 text-sm">Delivered 2 days ago</p>
-          </div>
-          <div className="mt-6 flex items-center gap-2 text-primary font-semibold">
-            Reorder <ArrowRight size={16} />
-          </div>
-        </motion.div>
+
+            <div className="relative z-10 p-6 h-full flex flex-col justify-between">
+              <div>
+                <div className="bg-primary text-white text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full w-fit mb-4 shadow-lg shadow-primary/30">
+                  Order Again
+                </div>
+                <h2 className="text-2xl font-black leading-tight mb-2 group-hover:text-primary transition-colors">
+                  {MOCK_RESTAURANTS[0].name}
+                </h2>
+                <div className="flex items-center gap-2 text-white/60 text-sm">
+                  <Clock size={14} />
+                  <span>Delivered 2 days ago</span>
+                </div>
+              </div>
+              
+              <div className="mt-8 flex items-center justify-between">
+                <div className="flex items-center gap-1 text-primary font-bold">
+                  Reorder <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </div>
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-all">
+                  <Heart size={18} className="fill-current" />
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
 
       </section>
 
       {/* Top Picks */}
       <motion.section
+        ref={resultsRef}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
@@ -233,60 +489,78 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {filteredRestaurants.map((restaurant, i) => (
-              <motion.div
-                key={restaurant.id}
-                whileHover={{ y: -8 }}
-                onClick={() => onSelectRestaurant(restaurant)}
-                className="bg-surface rounded-3xl overflow-hidden border border-white/5 cursor-pointer group"
-              >
-              <div className="relative h-48 overflow-hidden">
-                <img 
-                  src={restaurant.image} 
-                  alt={restaurant.name} 
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleFavorite(restaurant.id);
-                  }}
-                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center border border-white/10 hover:bg-black/60 transition-colors z-10"
-                >
-                  <Heart size={16} className={favorites.includes(restaurant.id) ? "fill-red-500 text-red-500" : "text-white"} />
-                </button>
-                <div className="absolute bottom-4 left-4 flex gap-2">
-                  {restaurant.categories.slice(0, 2).map(cat => (
-                    <span key={cat} className="bg-black/50 backdrop-blur-md text-xs font-medium px-2.5 py-1 rounded-lg border border-white/10">
-                      {cat}
-                    </span>
-                  ))}
-                </div>
+              <div key={restaurant.id} style={{ perspective: "1000px" }}>
+                <ThreeDCard onClick={() => onSelectRestaurant(restaurant)}>
+                  <div className="bg-surface rounded-3xl overflow-hidden border border-white/5 cursor-pointer group h-full shadow-xl">
+                    <div className="relative h-48 overflow-hidden">
+                      <img 
+                        src={restaurant.image} 
+                        alt={restaurant.name} 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(restaurant.id);
+                        }}
+                        className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center border border-white/10 hover:bg-black/60 transition-colors z-10"
+                      >
+                        <Heart size={16} className={favorites.includes(restaurant.id) ? "fill-red-500 text-red-500" : "text-white"} />
+                      </button>
+                      <div className="absolute bottom-4 left-4 flex gap-2">
+                        {restaurant.categories.slice(0, 2).map(cat => (
+                          <span key={cat} className="bg-black/50 backdrop-blur-md text-xs font-medium px-2.5 py-1 rounded-lg border border-white/10">
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="p-5">
+                      <div className="flex justify-between items-start mb-3">
+                        <h3 className="text-xl font-bold line-clamp-1">{restaurant.name}</h3>
+                        <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg text-sm font-medium">
+                          <Star size={14} className="text-yellow-400 fill-yellow-400" />
+                          {restaurant.rating}
+                        </div>
+                      </div>
+                      
+                      {/* Recent Review Snippet */}
+                      {recentReviews[restaurant.id] && (
+                        <div className="mb-4 p-3 bg-white/5 rounded-xl border border-white/5 relative group/review">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="flex gap-0.5">
+                              {[...Array(5)].map((_, i) => (
+                                <Star key={i} size={8} className={i < recentReviews[restaurant.id].rating ? "text-yellow-400 fill-yellow-400" : "text-white/10"} />
+                              ))}
+                            </div>
+                            <span className="text-[10px] text-white/40 font-bold uppercase tracking-tighter">Recent Review</span>
+                          </div>
+                          <p className="text-[11px] text-white/60 italic line-clamp-1">
+                            "{recentReviews[restaurant.id].text}"
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-4 text-white/50 text-sm">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={16} />
+                          {restaurant.deliveryTime}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
+                          ${restaurant.deliveryFee.toFixed(2)} delivery
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </ThreeDCard>
               </div>
-              <div className="p-5">
-                <div className="flex justify-between items-start mb-3">
-                  <h3 className="text-xl font-bold line-clamp-1">{restaurant.name}</h3>
-                  <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg text-sm font-medium">
-                    <Star size={14} className="text-yellow-400 fill-yellow-400" />
-                    {restaurant.rating}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-white/50 text-sm">
-                  <div className="flex items-center gap-1.5">
-                    <Clock size={16} />
-                    {restaurant.deliveryTime}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-                    ${restaurant.deliveryFee.toFixed(2)} delivery
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+            ))}
+          </div>
         )}
       </motion.section>
     </div>
