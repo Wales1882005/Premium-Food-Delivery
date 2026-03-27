@@ -23,7 +23,7 @@ export function AIMatchmaker({ onClose, onSelectRestaurant }: AIMatchmakerProps)
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        throw new Error("Gemini API key is missing. Please add it to your environment variables.");
+        throw new Error("Gemini API key is missing. If you deployed to Vercel, go to your Vercel Project Settings -> Environment Variables, add 'GEMINI_API_KEY' with your Google Gemini API key, and redeploy.");
       }
 
       const ai = new GoogleGenAI({ apiKey });
