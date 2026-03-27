@@ -230,49 +230,51 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {groupedMenu[category].map((item, i) => (
-                        <div key={item.id} style={{ perspective: "1000px" }}>
-                          <ThreeDCard>
-                            <div className="bg-surface p-4 rounded-3xl border border-white/5 flex gap-4 group hover:border-white/10 transition-colors h-full shadow-lg">
-                              <div className="flex-1 flex flex-col justify-between">
-                                <div>
-                                  <div className="flex justify-between items-start mb-1">
-                                    <h3 className="text-lg font-bold">{item.name}</h3>
-                                    <span className="text-primary font-bold">${item.price.toFixed(2)}</span>
-                                  </div>
-                                  <p className="text-white/50 text-sm line-clamp-2 mb-3">{item.description}</p>
-                                  <div className="flex gap-2 flex-wrap">
-                                    {item.tags.map(tag => (
-                                      <span key={tag} className="text-[10px] uppercase tracking-wider font-bold px-2 py-1 bg-white/5 text-white/70 rounded-md border border-white/10">
-                                        {tag}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                                <button 
-                                  onClick={() => onAddToCart(item)}
-                                  className="mt-4 w-fit flex items-center gap-2 bg-white/5 hover:bg-primary hover:text-white text-white/80 px-4 py-2 rounded-xl text-sm font-bold transition-all active:scale-95"
-                                >
-                                  <Plus size={16} /> Add to Order
-                                </button>
+                        <div key={item.id} className="bg-surface p-4 rounded-3xl border border-white/5 flex flex-col sm:flex-row gap-4 transition-colors h-full shadow-lg">
+                          <div className="w-full h-48 sm:w-32 sm:h-32 shrink-0 rounded-2xl overflow-hidden bg-white/5 relative sm:order-2">
+                            <img 
+                              src={item.image} 
+                              alt={item.name} 
+                              className="w-full h-full object-cover md:hover:scale-110 transition-transform duration-500"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080&auto=format&fit=crop';
+                              }}
+                            />
+                            {item.tags.includes('Popular') && (
+                              <div className="absolute top-2 left-2 bg-primary text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md shadow-lg">
+                                Popular
                               </div>
-                              <div className="w-32 h-32 shrink-0 rounded-2xl overflow-hidden bg-white/5 relative">
-                                <img 
-                                  src={item.image} 
-                                  alt={item.name} 
-                                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                                  referrerPolicy="no-referrer"
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080&auto=format&fit=crop';
-                                  }}
-                                />
-                                {item.tags.includes('Popular') && (
-                                  <div className="absolute top-2 left-2 bg-primary text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md shadow-lg">
-                                    Popular
-                                  </div>
-                                )}
+                            )}
+                          </div>
+                          <div className="flex-1 flex flex-col justify-between sm:order-1">
+                            <div>
+                              <div className="flex justify-between items-start mb-1">
+                                <h3 className="text-lg font-bold">{item.name}</h3>
+                                <span className="text-primary font-bold">${item.price.toFixed(2)}</span>
+                              </div>
+                              <p className="text-white/50 text-sm line-clamp-2 mb-3">{item.description}</p>
+                              <div className="flex gap-2 flex-wrap">
+                                {item.tags.map(tag => (
+                                  <span key={tag} className="text-[10px] uppercase tracking-wider font-bold px-2 py-1 bg-white/5 text-white/70 rounded-md border border-white/10">
+                                    {tag}
+                                  </span>
+                                ))}
                               </div>
                             </div>
-                          </ThreeDCard>
+                            <button 
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onAddToCart(item);
+                              }}
+                              className="relative z-10 mt-4 w-full bg-primary text-white py-4 rounded-2xl text-base font-bold shadow-lg flex items-center justify-center gap-2 touch-manipulation select-none"
+                              style={{ WebkitTapHighlightColor: 'transparent' }}
+                            >
+                              <Plus size={20} className="pointer-events-none" /> 
+                              <span className="pointer-events-none">Add to Order</span>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

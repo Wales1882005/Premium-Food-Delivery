@@ -246,7 +246,7 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
           {step === 3 ? (
             <button 
               onClick={onComplete}
-              className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-2xl font-bold text-lg transition-all active:scale-[0.98]"
+              className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-2xl font-bold text-lg transition-colors"
             >
               Track Order
             </button>
@@ -254,7 +254,7 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
             <button 
               onClick={handleNextStep}
               disabled={isPlacingOrder}
-              className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-2xl font-bold text-lg transition-all active:scale-[0.98] flex justify-between items-center px-6 disabled:opacity-70"
+              className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-2xl font-bold text-lg transition-colors flex justify-between items-center px-6 disabled:opacity-70"
             >
               <span>
                 {isPlacingOrder ? (

@@ -336,13 +336,13 @@ export function Orders() {
                       <div className="flex gap-2">
                         <button 
                           onClick={() => handleCancelOrder(activeOrder.id)}
-                          className="text-xs bg-red-500 text-white px-4 py-1.5 rounded-xl font-bold hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 active:scale-95"
+                          className="text-xs bg-red-500 text-white px-4 py-1.5 rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20"
                         >
                           Yes, Cancel
                         </button>
                         <button 
                           onClick={() => setOrderToCancel(null)}
-                          className="text-xs bg-white/10 text-white px-4 py-1.5 rounded-xl font-bold hover:bg-white/20 transition-all active:scale-95"
+                          className="text-xs bg-white/10 text-white px-4 py-1.5 rounded-xl font-bold hover:bg-white/20 transition-colors"
                         >
                           No, Keep it
                         </button>

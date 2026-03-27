@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Star, Gift, ChevronRight, Settings, LogOut, Heart, LogIn, ArrowLeft, Clock, Bell, CreditCard, Shield, X, Receipt, Database, Code, ExternalLink, Mail, Lock, UserPlus, Plus } from 'lucide-react';
+import { User, Star, Gift, ChevronRight, Settings, LogOut, Heart, LogIn, ArrowLeft, Clock, Bell, CreditCard, Shield, X, Receipt, Database, Code, ExternalLink, Mail, Lock, UserPlus, Plus, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { Restaurant } from '../types';
@@ -26,14 +26,203 @@ interface PaymentMethod {
   isDefault: boolean;
 }
 
-export function Profile({ favorites, toggleFavorite, onSelectRestaurant, onOpenSuggestion }: ProfileProps) {
-  const { user, authType, cravePoints, login, loginWithEmail, signUpWithEmail, logout } = useAuth();
-  const [activeSection, setActiveSection] = useState<'main' | 'saved' | 'promos' | 'settings' | 'payments' | 'privacy' | 'orders' | 'supabase' | 'suggestions'>('main');
+export function Profile(props: ProfileProps) {
+  const { user, isAuthReady } = useAuth();
+
+  if (!isAuthReady) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8 overflow-x-hidden">
+      <AnimatePresence mode="wait">
+        {!user ? (
+          <motion.div
+            key="auth"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <AuthView />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="profile-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <ProfileContent {...props} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function AuthView() {
+  const { login, loginWithEmail, signUpWithEmail } = useAuth();
   const [authMode, setAuthMode] = useState<'google' | 'email' | 'signup'>('google');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8">
+      <div className="w-24 h-24 bg-surface rounded-full flex items-center justify-center mb-4 border border-white/10">
+        <User size={40} className="text-white/40" />
+      </div>
+      <div className="text-center space-y-2">
+        <h1 className="text-3xl font-bold">Sign in to Crave</h1>
+        <p className="text-white/60 max-w-md">
+          Save your favorite restaurants, track your orders, and earn Crave Points for free meals!
+        </p>
+      </div>
+
+      <div className="w-full max-w-sm space-y-4">
+        {authMode === 'google' ? (
+          <div className="space-y-4">
+            <button 
+              onClick={login}
+              className="w-full bg-primary text-white font-bold py-4 px-8 rounded-2xl flex items-center justify-center gap-3 hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
+            >
+              <LogIn size={20} />
+              Continue with Google
+            </button>
+            <button 
+              onClick={() => setAuthMode('email')}
+              className="w-full bg-white/5 text-white font-bold py-4 px-8 rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all border border-white/10"
+            >
+              <Mail size={20} />
+              Family Login (Email)
+            </button>
+          </div>
+        ) : authMode === 'email' ? (
+          <form 
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setIsAuthLoading(true);
+              try {
+                await loginWithEmail(email, password);
+                toast.success('Welcome back!');
+              } catch (error: any) {
+                toast.error(error.message || 'Login failed');
+              } finally {
+                setIsAuthLoading(false);
+              }
+            }}
+            className="space-y-4 bg-surface p-6 rounded-3xl border border-white/10"
+          >
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-white/60">Email</label>
+              <input 
+                type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
+                placeholder="family@example.com"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-white/60">Password</label>
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={isAuthLoading}
+              className="w-full bg-primary text-white font-bold py-4 rounded-2xl hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {isAuthLoading ? 'Signing in...' : 'Sign In'}
+            </button>
+            <div className="flex justify-between text-sm">
+              <button type="button" onClick={() => setAuthMode('signup')} className="text-primary hover:underline">Create Account</button>
+              <button type="button" onClick={() => setAuthMode('google')} className="text-white/40 hover:text-white">Back to Google</button>
+            </div>
+          </form>
+        ) : (
+          <form 
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setIsAuthLoading(true);
+              try {
+                await signUpWithEmail(email, password, name);
+                toast.success('Account created! Please sign in.');
+                setAuthMode('email');
+              } catch (error: any) {
+                toast.error(error.message || 'Signup failed');
+              } finally {
+                setIsAuthLoading(false);
+              }
+            }}
+            className="space-y-4 bg-surface p-6 rounded-3xl border border-white/10"
+          >
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-white/60">Full Name</label>
+              <input 
+                type="text" 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
+                placeholder="John Doe"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-white/60">Email</label>
+              <input 
+                type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
+                placeholder="family@example.com"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-white/60">Password</label>
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={isAuthLoading}
+              className="w-full bg-primary text-white font-bold py-4 rounded-2xl hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {isAuthLoading ? 'Creating Account...' : 'Sign Up'}
+            </button>
+            <div className="flex justify-between text-sm">
+              <button type="button" onClick={() => setAuthMode('email')} className="text-primary hover:underline">Already have an account?</button>
+              <button type="button" onClick={() => setAuthMode('google')} className="text-white/40 hover:text-white">Back to Google</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenSuggestion }: ProfileProps) {
+  const { user, authType, cravePoints, logout, deleteAccount } = useAuth();
+  const [activeSection, setActiveSection] = useState<'main' | 'saved' | 'promos' | 'settings' | 'payments' | 'privacy' | 'orders' | 'supabase' | 'suggestions'>('main');
   const [orders, setOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [isAddingCard, setIsAddingCard] = useState(false);
@@ -50,7 +239,41 @@ export function Profile({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
   });
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
+  const handleAddCard = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newCard.number.length < 16) {
+      toast.error('Invalid card number');
+      return;
+    }
+    const id = Math.random().toString(36).substr(2, 9);
+    setPaymentMethods(prev => [...prev, {
+      id,
+      type: newCard.type,
+      last4: newCard.number.slice(-4),
+      expiry: newCard.expiry,
+      isDefault: false
+    }]);
+    setIsAddingCard(false);
+    setNewCard({ number: '', expiry: '', cvv: '', type: 'visa' });
+    toast.success('Card added successfully');
+  };
+
+  const setDefaultPayment = (id: string) => {
+    setPaymentMethods(prev => prev.map(m => ({
+      ...m,
+      isDefault: m.id === id
+    })));
+    toast.success('Default payment method updated');
+  };
+
+  const removePaymentMethod = (id: string) => {
+    setPaymentMethods(prev => prev.filter(m => m.id !== id));
+    toast.success('Payment method removed');
+  };
+
   const pointsToNextReward = 500;
   const progress = Math.min((cravePoints / pointsToNextReward) * 100, 100);
 
@@ -89,187 +312,6 @@ export function Profile({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
   };
 
   const profileBg = categoryBackgrounds[mostOrderedCategory] || categoryBackgrounds['Pizza'];
-
-  if (!user) {
-    return (
-      <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8 flex flex-col items-center justify-center min-h-[60vh]">
-        <div className="w-24 h-24 bg-surface rounded-full flex items-center justify-center mb-4 border border-white/10">
-          <User size={40} className="text-white/40" />
-        </div>
-        <h1 className="text-3xl font-bold text-center">Sign in to Crave</h1>
-        <p className="text-white/60 text-center max-w-md">
-          Save your favorite restaurants, track your orders, and earn Crave Points for free meals!
-        </p>
-
-        <div className="w-full max-w-sm space-y-4 mt-4">
-          {authMode === 'google' ? (
-            <div className="space-y-4">
-              <button 
-                onClick={login}
-                className="w-full bg-primary text-white font-bold py-4 px-8 rounded-2xl flex items-center justify-center gap-3 hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
-              >
-                <LogIn size={20} />
-                Continue with Google
-              </button>
-              <button 
-                onClick={() => setAuthMode('email')}
-                className="w-full bg-white/5 text-white font-bold py-4 px-8 rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all border border-white/10"
-              >
-                <Mail size={20} />
-                Family Login (Email)
-              </button>
-            </div>
-          ) : authMode === 'email' ? (
-            <form 
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setIsAuthLoading(true);
-                try {
-                  await loginWithEmail(email, password);
-                  toast.success('Welcome back!');
-                } catch (error: any) {
-                  toast.error(error.message || 'Login failed');
-                } finally {
-                  setIsAuthLoading(false);
-                }
-              }}
-              className="space-y-4 bg-surface p-6 rounded-3xl border border-white/10"
-            >
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-white/60">Email</label>
-                <input 
-                  type="email" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
-                  placeholder="family@example.com"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-white/60">Password</label>
-                <input 
-                  type="password" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-              <button 
-                type="submit"
-                disabled={isAuthLoading}
-                className="w-full bg-primary text-white font-bold py-4 rounded-2xl hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {isAuthLoading ? 'Signing in...' : 'Sign In'}
-              </button>
-              <div className="flex justify-between text-sm">
-                <button type="button" onClick={() => setAuthMode('signup')} className="text-primary hover:underline">Create Account</button>
-                <button type="button" onClick={() => setAuthMode('google')} className="text-white/40 hover:text-white">Back to Google</button>
-              </div>
-            </form>
-          ) : (
-            <form 
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setIsAuthLoading(true);
-                try {
-                  await signUpWithEmail(email, password, name);
-                  toast.success('Account created! Please sign in.');
-                  setAuthMode('email');
-                } catch (error: any) {
-                  toast.error(error.message || 'Signup failed');
-                } finally {
-                  setIsAuthLoading(false);
-                }
-              }}
-              className="space-y-4 bg-surface p-6 rounded-3xl border border-white/10"
-            >
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-white/60">Full Name</label>
-                <input 
-                  type="text" 
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
-                  placeholder="John Doe"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-white/60">Email</label>
-                <input 
-                  type="email" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
-                  placeholder="family@example.com"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-white/60">Password</label>
-                <input 
-                  type="password" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl p-3 focus:border-primary outline-none transition-colors"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-              <button 
-                type="submit"
-                disabled={isAuthLoading}
-                className="w-full bg-primary text-white font-bold py-4 rounded-2xl hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {isAuthLoading ? 'Creating Account...' : 'Sign Up'}
-              </button>
-              <div className="flex justify-between text-sm">
-                <button type="button" onClick={() => setAuthMode('email')} className="text-primary hover:underline">Already have an account?</button>
-                <button type="button" onClick={() => setAuthMode('google')} className="text-white/40 hover:text-white">Back to Google</button>
-              </div>
-            </form>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const handleAddCard = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newCard.number.length < 16 || !newCard.expiry || newCard.cvv.length < 3) {
-      toast.error('Please fill in all card details correctly');
-      return;
-    }
-
-    const method: PaymentMethod = {
-      id: Math.random().toString(36).substr(2, 9),
-      type: newCard.type,
-      last4: newCard.number.slice(-4),
-      expiry: newCard.expiry,
-      isDefault: paymentMethods.length === 0
-    };
-
-    setPaymentMethods([...paymentMethods, method]);
-    setIsAddingCard(false);
-    setNewCard({ number: '', expiry: '', cvv: '', type: 'visa' });
-    toast.success('Payment method added successfully!');
-  };
-
-  const removePaymentMethod = (id: string) => {
-    setPaymentMethods(paymentMethods.filter(p => p.id !== id));
-    toast.error('Payment method removed');
-  };
-
-  const setDefaultPayment = (id: string) => {
-    setPaymentMethods(paymentMethods.map(p => ({
-      ...p,
-      isDefault: p.id === id
-    })));
-    toast.success('Default payment updated');
-  };
 
   useEffect(() => {
     if (!user) return;
@@ -715,111 +757,67 @@ export function Profile({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
           </div>
         ))}
 
-        <button className="w-full p-6 text-red-400 font-bold hover:bg-red-500/5 transition-colors text-left">
+        <button 
+          onClick={() => setIsDeleteModalOpen(true)}
+          className="w-full p-6 text-red-400 font-bold hover:bg-red-500/5 transition-colors text-left"
+        >
           Delete Account
         </button>
       </div>
-    </motion.div>
-  );
 
-  const renderSupabaseGuide = () => (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="space-y-6"
-    >
-      <div className="flex items-center gap-4 mb-8">
-        <button 
-          onClick={() => setActiveSection('settings')}
-          className="p-2 bg-surface rounded-full hover:bg-white/10 transition-colors"
-        >
-          <ArrowLeft size={24} />
-        </button>
-        <h2 className="text-2xl font-bold">Supabase Integration</h2>
-      </div>
+      <AnimatePresence>
+        {isDeleteModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-surface border border-red-500/30 p-8 rounded-3xl max-w-md w-full text-center space-y-6 shadow-2xl"
+            >
+              <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle className="text-red-500" size={40} />
+              </div>
+              
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-white">Delete Account?</h2>
+                <p className="text-white/60 text-sm">
+                  This action is permanent. You will lose all your Crave Points, order history, and saved restaurants.
+                </p>
+              </div>
 
-      <div className="bg-surface rounded-3xl border border-white/5 p-8 space-y-8">
-        <div className="flex items-center gap-4 p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
-          <Database className="text-emerald-400" size={32} />
-          <div>
-            <h3 className="font-bold text-lg">Why Supabase?</h3>
-            <p className="text-sm text-white/60">Supabase is an open-source Firebase alternative that uses PostgreSQL. It's great if you need complex relational queries.</p>
+              <div className="flex flex-col gap-3">
+                <button
+                  disabled={isDeleting}
+                  onClick={async () => {
+                    setIsDeleting(true);
+                    try {
+                      await deleteAccount();
+                      toast.success('Account deleted successfully');
+                    } catch (error: any) {
+                      toast.error(error.message || 'Failed to delete account');
+                    } finally {
+                      setIsDeleting(false);
+                      setIsDeleteModalOpen(false);
+                    }
+                  }}
+                  className="w-full py-4 bg-red-500 text-white rounded-2xl font-bold hover:bg-red-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isDeleting ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : 'Yes, Delete Account'}
+                </button>
+                <button
+                  disabled={isDeleting}
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="w-full py-4 bg-white/5 text-white rounded-2xl font-bold hover:bg-white/10 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-
-        <div className="space-y-6">
-          <h3 className="font-bold text-xl flex items-center gap-2">
-            <Database className="text-primary" size={20} />
-            Database Setup (SQL)
-          </h3>
-          <p className="text-sm text-white/60">Run these scripts in your Supabase SQL Editor to create the necessary tables:</p>
-          
-          <div className="bg-black/40 rounded-2xl p-6 border border-white/10 font-mono text-xs overflow-x-auto space-y-4">
-            <div>
-              <p className="text-emerald-400 mb-2">-- 1. Create Profiles Table</p>
-              <pre className="text-white/80">
-{`create table profiles (
-  id uuid references auth.users on delete cascade primary key,
-  email text,
-  display_name text,
-  crave_points integer default 0,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- Enable RLS
-alter table profiles enable row level security;
-
--- Create policies
-create policy "Public profiles are viewable by everyone." on profiles for select using ( true );
-create policy "Users can insert their own profile." on profiles for insert with check ( auth.uid() = id );
-create policy "Users can update own profile." on profiles for update using ( auth.uid() = id );`}
-              </pre>
-            </div>
-
-            <div>
-              <p className="text-emerald-400 mb-2">-- 2. Create Orders Table</p>
-              <pre className="text-white/80">
-{`create table orders (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references auth.users on delete cascade not null,
-  restaurant_id text not null,
-  restaurant_name text not null,
-  items jsonb not null,
-  total numeric not null,
-  status text not null,
-  delivery_address text not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- Enable RLS
-alter table orders enable row level security;
-
--- Create policies
-create policy "Users can view their own orders." on orders for select using ( auth.uid() = user_id );
-create policy "Users can insert their own orders." on orders for insert with check ( auth.uid() = user_id );`}
-              </pre>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-black/40 rounded-2xl p-6 border border-white/10 font-mono text-xs overflow-x-auto">
-          <p className="text-emerald-400 mb-2">// Example Initialization</p>
-          <p className="text-white/80">import &#123; createClient &#125; from '@supabase/supabase-js'</p>
-          <p className="text-white/80 mt-2">const supabaseUrl = 'https://your-project.supabase.co'</p>
-          <p className="text-white/80">const supabaseKey = process.env.SUPABASE_KEY</p>
-          <p className="text-white/80 mt-2">export const supabase = createClient(supabaseUrl, supabaseKey)</p>
-        </div>
-
-        <a 
-          href="https://supabase.com/docs" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-500 transition-colors"
-        >
-          View Full Documentation <ExternalLink size={18} />
-        </a>
-      </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 
@@ -840,56 +838,158 @@ create policy "Users can insert their own orders." on orders for insert with che
         <h2 className="text-2xl font-bold">Community Suggestions</h2>
       </div>
 
-      <div className="space-y-6">
+      <div className="bg-primary/10 border border-primary/20 p-6 rounded-3xl mb-6">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-primary/20 rounded-2xl text-primary">
+            <Plus size={24} />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg">Have a Suggestion?</h3>
+            <p className="text-sm text-white/60">Help us improve Crave by suggesting new features or restaurants!</p>
+          </div>
+        </div>
         <button 
           onClick={onOpenSuggestion}
-          className="w-full py-6 border-2 border-dashed border-white/10 rounded-3xl text-white/40 hover:text-white hover:border-white/20 transition-all flex flex-col items-center justify-center gap-2 font-bold bg-white/5"
+          className="w-full py-3 bg-primary text-white rounded-xl font-bold hover:opacity-90 transition-opacity"
         >
-          <Plus size={32} />
-          <span>Suggest a Restaurant or Food</span>
-          <p className="text-xs font-normal opacity-60">Help us grow our community!</p>
+          Submit Suggestion
         </button>
+      </div>
+
+      {loadingSuggestions ? (
+        <div className="flex justify-center py-12">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : suggestions.length > 0 ? (
+        <div className="space-y-4">
+          {suggestions.map(suggestion => (
+            <div key={suggestion.id} className="bg-surface p-6 rounded-3xl border border-white/5 space-y-3">
+              <div className="flex justify-between items-start">
+                <h3 className="font-bold text-lg">{suggestion.title}</h3>
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${
+                  suggestion.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
+                  suggestion.status === 'in_progress' ? 'bg-blue-500/20 text-blue-400' :
+                  'bg-white/10 text-white/40'
+                }`}>
+                  {suggestion.status?.replace('_', ' ') || 'pending'}
+                </span>
+              </div>
+              <p className="text-sm text-white/60">{suggestion.description}</p>
+              <div className="flex items-center justify-between text-xs text-white/40 pt-2 border-t border-white/5">
+                <span>By {suggestion.authorName || 'Anonymous'}</span>
+                <span>{suggestion.createdAt?.toDate ? suggestion.createdAt.toDate().toLocaleDateString() : 'Recently'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-20 bg-surface rounded-3xl border border-white/5">
+          <Plus size={48} className="mx-auto text-white/10 mb-4" />
+          <h3 className="text-xl font-bold mb-2">No suggestions yet</h3>
+          <p className="text-white/40">Be the first to suggest something!</p>
+        </div>
+      )}
+    </motion.div>
+  );
+
+  const renderSupabaseGuide = () => (
+    <motion.div
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      className="space-y-6"
+    >
+      <div className="flex items-center gap-4 mb-8">
+        <button 
+          onClick={() => setActiveSection('settings')}
+          className="p-2 bg-surface rounded-full hover:bg-white/10 transition-colors"
+        >
+          <ArrowLeft size={24} />
+        </button>
+        <h2 className="text-2xl font-bold">Supabase Integration</h2>
+      </div>
+
+      <div className="bg-surface p-6 rounded-3xl border border-white/5 space-y-6">
+        <div className="flex items-center gap-4 text-emerald-400">
+          <Database size={32} />
+          <div>
+            <h3 className="font-bold text-xl">Setup Your Database</h3>
+            <p className="text-sm text-white/60">Run these SQL scripts in your Supabase SQL Editor</p>
+          </div>
+        </div>
 
         <div className="space-y-4">
-          <h3 className="text-xl font-bold flex items-center gap-2">
-            <Star size={20} className="text-yellow-400" />
-            Recent Suggestions
-          </h3>
-          
-          {loadingSuggestions ? (
-            <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-white/40 uppercase tracking-wider">1. Profiles Table</span>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(`create table public.profiles (
+  id uuid references auth.users on delete cascade not null primary key,
+  full_name text,
+  avatar_url text,
+  crave_points integer default 0,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);`);
+                  toast.success('SQL copied!');
+                }}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                <Code size={12} /> Copy SQL
+              </button>
             </div>
-          ) : suggestions.length > 0 ? (
-            <div className="grid grid-cols-1 gap-4">
-              {suggestions.map(suggestion => (
-                <div key={suggestion.id} className="bg-surface p-6 rounded-3xl border border-white/5 hover:border-white/10 transition-colors">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h4 className="text-lg font-bold text-primary">{suggestion.foodType}</h4>
-                      <p className="text-sm font-medium">at {suggestion.restaurantName}</p>
-                    </div>
-                    <span className="text-[10px] text-white/40 uppercase font-bold">
-                      {suggestion.createdAt?.toDate ? suggestion.createdAt.toDate().toLocaleDateString() : 'Recently'}
-                    </span>
-                  </div>
-                  <p className="text-white/70 text-sm italic mb-4">"{suggestion.description}"</p>
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
-                      {suggestion.userName.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="text-xs text-white/40">Suggested by {suggestion.userName}</span>
-                  </div>
-                </div>
-              ))}
+            <pre className="bg-black/40 p-4 rounded-xl text-xs font-mono overflow-x-auto text-emerald-400/80 border border-white/5">
+{`create table public.profiles (
+  id uuid references auth.users on delete cascade not null primary key,
+  full_name text,
+  avatar_url text,
+  crave_points integer default 0,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);`}
+            </pre>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-white/40 uppercase tracking-wider">2. Orders Table</span>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(`create table public.orders (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  restaurant_name text not null,
+  total decimal not null,
+  status text default 'pending' not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);`);
+                  toast.success('SQL copied!');
+                }}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                <Code size={12} /> Copy SQL
+              </button>
             </div>
-          ) : (
-            <div className="text-center py-20 bg-surface rounded-3xl border border-white/5">
-              <Database size={48} className="mx-auto text-white/10 mb-4" />
-              <h3 className="text-xl font-bold mb-2">No suggestions yet</h3>
-              <p className="text-white/40">Be the first to suggest something new!</p>
+            <pre className="bg-black/40 p-4 rounded-xl text-xs font-mono overflow-x-auto text-emerald-400/80 border border-white/5">
+{`create table public.orders (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  restaurant_name text not null,
+  total decimal not null,
+  status text default 'pending' not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);`}
+            </pre>
+          </div>
+
+          <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 flex gap-4">
+            <div className="p-2 bg-emerald-500/20 rounded-lg h-fit">
+              <ExternalLink size={16} className="text-emerald-400" />
             </div>
-          )}
+            <div className="text-sm">
+              <p className="font-bold text-emerald-400 mb-1">Row Level Security (RLS)</p>
+              <p className="text-white/60">Don't forget to enable RLS and add policies to allow users to read/write their own data.</p>
+            </div>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -953,12 +1053,26 @@ create policy "Users can insert their own orders." on orders for insert with che
           </div>
           <ChevronRight className="text-white/40" />
         </div>
+        
+        <div 
+          onClick={() => setActiveSection('supabase')}
+          className="p-6 border-b border-white/5 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-white/5 rounded-xl text-emerald-400"><Database size={20} /></div>
+            <div>
+              <h3 className="font-medium text-lg">Supabase Integration</h3>
+              <p className="text-sm text-white/50">Database setup and SQL scripts</p>
+            </div>
+          </div>
+          <ChevronRight className="text-white/40" />
+        </div>
       </div>
     </motion.div>
   );
 
   return (
-    <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8 overflow-x-hidden">
+    <div className="space-y-8">
       <AnimatePresence mode="wait">
         {activeSection === 'saved' && <div key="saved">{renderSavedRestaurants()}</div>}
         {activeSection === 'promos' && <div key="promos">{renderPromos()}</div>}
@@ -967,6 +1081,7 @@ create policy "Users can insert their own orders." on orders for insert with che
         {activeSection === 'payments' && <div key="payments">{renderPaymentMethods()}</div>}
         {activeSection === 'privacy' && <div key="privacy">{renderPrivacy()}</div>}
         {activeSection === 'suggestions' && <div key="suggestions">{renderSuggestions()}</div>}
+        {activeSection === 'supabase' && <div key="supabase">{renderSupabaseGuide()}</div>}
         
         {activeSection === 'main' && (
           <motion.div
@@ -979,7 +1094,6 @@ create policy "Users can insert their own orders." on orders for insert with che
             <h1 className="text-3xl font-bold">Profile</h1>
 
             <div className="relative bg-surface rounded-3xl border border-white/5 shadow-xl overflow-hidden">
-              {/* Dynamic Background based on most ordered food */}
               <div className="absolute inset-0 z-0">
                 <img src={profileBg} className="w-full h-full object-cover opacity-20 blur-sm" referrerPolicy="no-referrer" />
                 <div className="absolute inset-0 bg-gradient-to-r from-surface via-surface/80 to-transparent" />
@@ -1005,52 +1119,55 @@ create policy "Users can insert their own orders." on orders for insert with che
               </div>
             </div>
 
-            {/* Crave Points Gamification */}
             <div style={{ perspective: "1000px" }}>
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                whileHover={{ rotateX: 5, rotateY: -2, scale: 1.02 }}
-                className="bg-gradient-to-br from-primary/20 to-surface rounded-3xl p-6 border border-primary/30 relative overflow-hidden shadow-2xl"
-              >
-                <div className="absolute -right-10 -top-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl" />
-                
-                <div className="flex justify-between items-start mb-6 relative z-10">
-                  <div>
-                    <h3 className="text-xl font-bold flex items-center gap-2">
-                      <Star className="text-yellow-400 fill-yellow-400" size={24} />
-                      Crave Points
-                    </h3>
-                    <p className="text-white/70 text-sm mt-1">Earn 10 points for every $1 spent</p>
-                  </div>
-                  <div className="text-3xl font-black text-primary">{cravePoints}</div>
-                </div>
+              {(() => {
+                const isMobile = typeof window !== 'undefined' && !window.matchMedia("(pointer: fine)").matches;
+                return (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileHover={!isMobile ? { rotateX: 5, rotateY: -2, scale: 1.02 } : {}}
+                    className="bg-gradient-to-br from-primary/20 to-surface rounded-3xl p-6 border border-primary/30 relative overflow-hidden shadow-2xl"
+                  >
+                    <div className="absolute -right-10 -top-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl" />
+                    
+                    <div className="flex justify-between items-start mb-6 relative z-10">
+                      <div>
+                        <h3 className="text-xl font-bold flex items-center gap-2">
+                          <Star className="text-yellow-400 fill-yellow-400" size={24} />
+                          Crave Points
+                        </h3>
+                        <p className="text-white/70 text-sm mt-1">Earn 10 points for every $1 spent</p>
+                      </div>
+                      <div className="text-3xl font-black text-primary">{cravePoints}</div>
+                    </div>
 
-                <div className="space-y-3 relative z-10">
-                  <div className="flex justify-between text-sm font-medium">
-                    <span>Progress to Free Meal</span>
-                    <span>{cravePoints} / {pointsToNextReward} pts</span>
-                  </div>
-                  <div className="h-4 bg-black/40 rounded-full overflow-hidden border border-white/10">
-                    <motion.div 
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                      transition={{ duration: 1, ease: "easeOut" }}
-                      className="h-full bg-gradient-to-r from-primary to-yellow-400 relative"
-                    >
-                      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay" />
-                    </motion.div>
-                  </div>
-                  <p className="text-xs text-white/50 text-right">
-                    {cravePoints >= pointsToNextReward 
-                      ? "You've earned a free meal! Claim it at checkout." 
-                      : `${pointsToNextReward - cravePoints} more points to go!`}
-                  </p>
-                </div>
-              </motion.div>
+                    <div className="space-y-3 relative z-10">
+                      <div className="flex justify-between text-sm font-medium">
+                        <span>Progress to Free Meal</span>
+                        <span>{cravePoints} / {pointsToNextReward} pts</span>
+                      </div>
+                      <div className="h-4 bg-black/40 rounded-full overflow-hidden border border-white/10">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${progress}%` }}
+                          transition={{ duration: 1, ease: "easeOut" }}
+                          className="h-full bg-gradient-to-r from-primary to-yellow-400 relative"
+                        >
+                          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay" />
+                        </motion.div>
+                      </div>
+                      <p className="text-xs text-white/50 text-right">
+                        {cravePoints >= pointsToNextReward 
+                          ? "You've earned a free meal! Claim it at checkout." 
+                          : `${pointsToNextReward - cravePoints} more points to go!`}
+                      </p>
+                    </div>
+                  </motion.div>
+                );
+              })()}
             </div>
 
-            {/* Menu Options */}
             <div className="bg-surface rounded-3xl border border-white/5 overflow-hidden">
               <button 
                 onClick={() => setActiveSection('saved')}

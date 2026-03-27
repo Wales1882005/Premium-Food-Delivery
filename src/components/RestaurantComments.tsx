@@ -137,7 +137,7 @@ export function RestaurantComments({ restaurantId, restaurantName }: RestaurantC
                   key={star}
                   type="button"
                   onClick={() => setRating(star)}
-                  className="focus:outline-none transition-transform hover:scale-110 active:scale-90"
+                  className="focus:outline-none transition-transform hover:scale-110"
                 >
                   <Star 
                     size={32} 
@@ -158,7 +158,7 @@ export function RestaurantComments({ restaurantId, restaurantName }: RestaurantC
             <button 
               type="submit"
               disabled={isSubmitting || !newComment.trim()}
-              className="absolute bottom-6 right-6 p-3 bg-primary text-white rounded-xl hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20 active:scale-95"
+              className="absolute bottom-6 right-6 p-3 bg-primary text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20"
             >
               <Send size={24} />
             </button>

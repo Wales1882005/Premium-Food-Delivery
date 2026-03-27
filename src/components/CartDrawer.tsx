@@ -112,7 +112,7 @@ export function CartDrawer({ isOpen, onClose, cart, updateQuantity, onCheckout }
                 </div>
                 <button
                   onClick={onCheckout}
-                  className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                  className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-colors"
                 >
                   Checkout <ArrowRight size={20} />
                 </button>

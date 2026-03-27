@@ -18,6 +18,9 @@ export function ThreeDCard({ children, className = '', onClick }: ThreeDCardProp
   const rotateY = useTransform(mouseXSpring, [-0.5, 0.5], ["-17.5deg", "17.5deg"]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Only apply 3D effect on devices with a fine pointer (mouse)
+    if (!window.matchMedia("(pointer: fine)").matches) return;
+
     const rect = e.currentTarget.getBoundingClientRect();
 
     const width = rect.width;
@@ -38,24 +41,26 @@ export function ThreeDCard({ children, className = '', onClick }: ThreeDCardProp
     y.set(0);
   };
 
+  const isMobile = typeof window !== 'undefined' && !window.matchMedia("(pointer: fine)").matches;
+
   return (
     <motion.div
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       onClick={onClick}
       style={{
-        rotateY,
-        rotateX,
-        transformStyle: "preserve-3d",
+        rotateY: isMobile ? 0 : rotateY,
+        rotateX: isMobile ? 0 : rotateX,
+        transformStyle: isMobile ? "flat" : "preserve-3d",
       }}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={!isMobile ? { scale: 1.02 } : {}}
+      whileTap={!isMobile ? { scale: 0.98 } : {}}
       className={`relative h-full w-full transition-shadow duration-300 ${className}`}
     >
       <div
         style={{
-          transform: "translateZ(75px)",
-          transformStyle: "preserve-3d",
+          transform: !isMobile ? "translateZ(75px)" : "none",
+          transformStyle: isMobile ? "flat" : "preserve-3d",
         }}
         className="h-full w-full"
       >

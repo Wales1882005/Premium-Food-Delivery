@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User as FirebaseUser, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
+import { User as FirebaseUser, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut, deleteUser } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { supabase } from '../lib/supabase';
@@ -14,6 +14,7 @@ interface AuthContextType {
   loginWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   updateCravePoints: (points: number) => Promise<void>;
 }
 
@@ -146,6 +147,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const deleteAccount = async () => {
+    if (!user) return;
+
+    try {
+      if (authType === 'firebase') {
+        const firebaseUser = user as FirebaseUser;
+        // Delete user data from Firestore first
+        try {
+          const userRef = doc(db, 'users', firebaseUser.uid);
+          await setDoc(userRef, { deleted: true, deletedAt: serverTimestamp() }, { merge: true });
+        } catch (e) {
+          console.error("Error marking user as deleted in Firestore", e);
+        }
+        // Delete the user from Firebase Auth
+        await deleteUser(firebaseUser);
+      } else if (authType === 'supabase') {
+        const supabaseUser = user as SupabaseUser;
+        // Delete profile from Supabase
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .delete()
+          .eq('id', supabaseUser.id);
+        
+        if (profileError) console.error('Error deleting Supabase profile:', profileError);
+        
+        // Note: Supabase doesn't allow users to delete themselves from auth.users via client SDK 
+        // without a service role or a specific RPC function. 
+        // We'll just sign them out after deleting their profile.
+        await supabase.auth.signOut();
+      }
+      
+      setUser(null);
+      setAuthType(null);
+      setCravePoints(0);
+    } catch (error) {
+      console.error("Delete account failed", error);
+      throw error;
+    }
+  };
+
   const updateCravePoints = async (points: number) => {
     if (!user) return;
     const newPoints = cravePoints + points;
@@ -170,7 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, authType, cravePoints, isAuthReady, login, loginWithEmail, signUpWithEmail, logout, updateCravePoints }}>
+    <AuthContext.Provider value={{ user, authType, cravePoints, isAuthReady, login, loginWithEmail, signUpWithEmail, logout, deleteAccount, updateCravePoints }}>
       {children}
     </AuthContext.Provider>
   );

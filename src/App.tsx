@@ -50,6 +50,7 @@ function AppContent() {
       return [...prev, { ...item, quantity: 1 }];
     });
     toast.success(`Added ${item.name} to cart!`);
+    setIsCartOpen(true);
   };
 
   const updateQuantity = (id: string, delta: number) => {
