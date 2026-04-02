@@ -1215,6 +1215,9 @@ const translations = {
 function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenSuggestion, onOpenRestaurantOnboarding }: ProfileProps) {
   const { user, authType, role, cravePoints, logout, deleteAccount, updateProfileName, setRole } = useAuth();
   const [activeSection, setActiveSection] = useState<'main' | 'saved' | 'promos' | 'settings' | 'payments' | 'privacy' | 'orders' | 'supabase' | 'suggestions' | 'restaurant_dashboard' | 'restaurant_orders' | 'restaurant_menu' | 'driver_dashboard'>('main');
+  
+  // Return null if user is not available (e.g. during logout animation)
+  if (!user) return null;
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);

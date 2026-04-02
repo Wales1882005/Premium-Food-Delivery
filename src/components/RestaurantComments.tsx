@@ -51,18 +51,22 @@ export function RestaurantComments({ restaurantId, restaurantName }: RestaurantC
       return;
     }
 
+    // Double check user is not null for TypeScript and safety
+    const currentUser = user as any;
+    if (!currentUser) return;
+
     setIsSubmitting(true);
     try {
       const commentData: any = {
-        userId: (user as any).uid,
-        userName: (user as any).displayName || 'Anonymous',
+        userId: currentUser.uid,
+        userName: currentUser.displayName || 'Anonymous',
         restaurantId,
         text: newComment,
         rating,
         createdAt: serverTimestamp()
       };
-      if ((user as any).photoURL) {
-        commentData.userPhoto = (user as any).photoURL;
+      if (currentUser.photoURL) {
+        commentData.userPhoto = currentUser.photoURL;
       }
 
       await addDoc(collection(db, 'comments'), commentData);
