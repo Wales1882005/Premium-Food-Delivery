@@ -271,6 +271,8 @@ interface RestaurantDashboardViewProps {
   setSelectedRestaurantForOrders: (restaurant: Restaurant) => void;
   language: string;
   setLanguage: (lang: string) => void;
+  restaurantToDelete: string | null;
+  setRestaurantToDelete: (id: string | null) => void;
 }
 
 const RestaurantDashboardView = ({ 
@@ -281,8 +283,11 @@ const RestaurantDashboardView = ({
   onSelectRestaurant,
   setSelectedRestaurantForOrders,
   language,
-  setLanguage
+  setLanguage,
+  restaurantToDelete,
+  setRestaurantToDelete
 }: RestaurantDashboardViewProps) => {
+  console.log('RestaurantDashboardView props:', { restaurantToDelete, setRestaurantToDelete });
   const [myRestaurants, setMyRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -296,7 +301,6 @@ const RestaurantDashboardView = ({
   const [promoDesc, setPromoDesc] = useState('');
   const [promoValue, setPromoValue] = useState('');
   const [isCreatingPromo, setIsCreatingPromo] = useState(false);
-  const [restaurantToDelete, setRestaurantToDelete] = useState<string | null>(null);
 
   const handleCreatePromo = async (restaurantId: string) => {
     if (!promoCode || !promoDesc) {
@@ -546,7 +550,10 @@ const RestaurantDashboardView = ({
                     />
                   </label>
                   <button 
-                    onClick={() => setRestaurantToDelete(restaurant.id)}
+                    onClick={() => {
+                      console.log('Setting restaurantToDelete to:', restaurant.id);
+                      setRestaurantToDelete(restaurant.id);
+                    }}
                     className="p-2 bg-red-500/80 hover:bg-red-600 backdrop-blur-md rounded-xl text-white transition-colors"
                     title="Delete Restaurant"
                   >
@@ -642,6 +649,7 @@ const RestaurantDashboardView = ({
                           </button>
                           <button 
                             onClick={() => {
+                              console.log('Manage Orders clicked for:', restaurant.name);
                               setSelectedRestaurantForOrders(restaurant);
                               setActiveSection('restaurant_orders');
                             }}
@@ -820,7 +828,10 @@ const RestaurantDashboardView = ({
                   Cancel
                 </button>
                 <button 
-                  onClick={() => restaurantToDelete && handleDeleteRestaurant(restaurantToDelete)}
+                  onClick={() => {
+                    console.log('Deleting restaurant:', restaurantToDelete);
+                    restaurantToDelete && handleDeleteRestaurant(restaurantToDelete);
+                  }}
                   className="flex-1 py-3 rounded-xl font-bold bg-red-500 hover:bg-red-600 transition-colors"
                 >
                   Delete
@@ -1350,6 +1361,7 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [myRestaurants, setMyRestaurants] = useState<Restaurant[]>([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
+  const [restaurantToDelete, setRestaurantToDelete] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [language, setLanguage] = useState(() => {
@@ -2406,6 +2418,8 @@ create policy "Users can update their own restaurants"
               setSelectedRestaurantForOrders={setSelectedRestaurantForOrders}
               language={language}
               setLanguage={setLanguage}
+              restaurantToDelete={restaurantToDelete}
+              setRestaurantToDelete={setRestaurantToDelete}
             />
           </div>
         )}
