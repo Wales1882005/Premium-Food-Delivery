@@ -27,13 +27,22 @@
           "type": "number",
           "description": "The user's accumulated loyalty points."
         },
+        "driverEarnings": {
+          "type": "number",
+          "description": "The driver's total earnings."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
           "description": "When the user profile was created."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["customer", "restaurant", "driver", "admin"],
+          "description": "The user's role in the platform."
         }
       },
-      "required": ["uid", "email", "cravePoints", "createdAt"]
+      "required": ["uid", "email", "cravePoints", "createdAt", "role"]
     },
     "Order": {
       "title": "Order",
@@ -68,6 +77,19 @@
         "deliveryAddress": {
           "type": "string",
           "description": "The address where the order will be delivered."
+        },
+        "driverLat": {
+          "type": "number",
+          "description": "Current latitude of the delivery driver."
+        },
+        "driverLng": {
+          "type": "number",
+          "description": "Current longitude of the delivery driver."
+        },
+        "estimatedDeliveryTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Estimated time of delivery."
         },
         "createdAt": {
           "type": "string",
@@ -105,6 +127,55 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "userName", "restaurantId", "text", "rating", "createdAt"]
+    },
+    "Restaurant": {
+      "title": "Restaurant",
+      "description": "A restaurant or shop profile.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "description": "The UID of the user who owns this restaurant." },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "image": { "type": "string", "format": "uri" },
+        "rating": { "type": "number" },
+        "deliveryTime": { "type": "string" },
+        "deliveryFee": { "type": "number" },
+        "tags": { "type": "string", "description": "JSON stringified array of tags" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "description", "image", "rating", "deliveryTime", "deliveryFee", "isActive", "createdAt"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "An item on a restaurant's menu.",
+      "type": "object",
+      "properties": {
+        "restaurantId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "image": { "type": "string", "format": "uri" },
+        "category": { "type": "string" },
+        "isAvailable": { "type": "boolean" }
+      },
+      "required": ["restaurantId", "name", "description", "price", "image", "category", "isAvailable"]
+    },
+    "Promotion": {
+      "title": "Promotion",
+      "description": "A special offer or discount from a restaurant.",
+      "type": "object",
+      "properties": {
+        "restaurantId": { "type": "string" },
+        "restaurantName": { "type": "string" },
+        "type": { "type": "string", "enum": ["bogo", "discount", "fixed"] },
+        "code": { "type": "string" },
+        "description": { "type": "string" },
+        "value": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["restaurantId", "restaurantName", "type", "code", "description", "isActive", "createdAt"]
     }
   },
   "firestore": {
@@ -116,6 +187,18 @@
       "schema": { "$ref": "#/entities/Order" },
       "description": "Stores orders placed by a specific user."
     },
+    "/users/{userId}/orders/{orderId}/messages/{messageId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "sender": { "type": "string", "enum": ["user", "driver"] },
+          "text": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["sender", "text", "createdAt"]
+      },
+      "description": "Chat messages between user and driver."
+    },
     "/suggestions/{suggestionId}": {
       "schema": { "$ref": "#/entities/Suggestion" },
       "description": "Stores user suggestions."
@@ -123,6 +206,18 @@
     "/comments/{commentId}": {
       "schema": { "$ref": "#/entities/Comment" },
       "description": "Stores user comments/reviews for restaurants."
+    },
+    "/restaurants/{restaurantId}": {
+      "schema": { "$ref": "#/entities/Restaurant" },
+      "description": "Stores restaurant profiles."
+    },
+    "/restaurants/{restaurantId}/menuItems/{itemId}": {
+      "schema": { "$ref": "#/entities/MenuItem" },
+      "description": "Stores menu items for a specific restaurant."
+    },
+    "/promotions/{promotionId}": {
+      "schema": { "$ref": "#/entities/Promotion" },
+      "description": "Stores global promotions for efficient lookup."
     }
   }
 }

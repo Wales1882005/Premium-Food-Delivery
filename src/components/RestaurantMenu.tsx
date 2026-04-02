@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Star, Clock, Info, Plus, X, MessageSquare, Send, UtensilsCrossed, Share2, Heart } from 'lucide-react';
+import { ArrowLeft, Star, Clock, Info, Plus, X, MessageSquare, Send, UtensilsCrossed, Share2, Heart, MapPin } from 'lucide-react';
 import { Restaurant, MenuItem } from '../types';
 import { ThreeDCard } from './ThreeDCard';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
@@ -24,6 +24,7 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
   const [activeCategory, setActiveCategory] = useState(restaurant.menu[0]?.category || '');
   const [commentsCount, setCommentsCount] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const handleShare = async () => {
     const shareData = {
@@ -71,27 +72,38 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
   const scrollToCategory = (category: string) => {
     setActiveCategory(category);
     const element = document.getElementById(`category-${category}`);
-    if (element) {
-      const y = element.getBoundingClientRect().top + window.scrollY - 160;
-      window.scrollTo({ top: y, behavior: 'smooth' });
+    if (element && scrollContainerRef.current) {
+      const y = element.getBoundingClientRect().top + scrollContainerRef.current.scrollTop - 160;
+      scrollContainerRef.current.scrollTo({ top: y, behavior: 'smooth' });
     }
   };
 
   const handleTabChange = (tab: 'menu' | 'reviews') => {
     setActiveTab(tab);
-    if (contentRef.current) {
-      const y = contentRef.current.getBoundingClientRect().top + window.scrollY - 100;
-      window.scrollTo({ top: y, behavior: 'smooth' });
+    if (contentRef.current && scrollContainerRef.current) {
+      const y = contentRef.current.getBoundingClientRect().top + scrollContainerRef.current.scrollTop - 100;
+      scrollContainerRef.current.scrollTo({ top: y, behavior: 'smooth' });
     }
   };
 
   return (
     <motion.div 
+      ref={scrollContainerRef}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
-      className="pb-24 bg-background min-h-screen"
+      className="fixed inset-0 z-50 overflow-y-auto bg-background pb-24"
     >
+      {/* Sticky Back Button */}
+      <div className="fixed top-4 left-4 z-50">
+        <button 
+          onClick={onBack}
+          className="p-3 bg-black/50 backdrop-blur-md text-white rounded-full hover:bg-black/70 transition-colors border border-white/10"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      </div>
+
       {/* Header Image & Info */}
       <div className="relative h-72 md:h-96" style={{ perspective: "1000px" }}>
         <motion.img 
@@ -103,18 +115,11 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
           alt={restaurant.name} 
           className="w-full h-full object-cover"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=2070&auto=format&fit=crop';
+            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&q=80';
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
         
-        <button 
-          onClick={onBack}
-          className="fixed top-6 left-4 z-50 p-3 bg-black/40 backdrop-blur-md rounded-full hover:bg-black/60 transition-colors border border-white/10 shadow-lg"
-        >
-          <ArrowLeft size={24} />
-        </button>
-
         <div className="fixed top-6 right-4 z-50 flex gap-2">
           <button 
             onClick={handleShare}
@@ -152,8 +157,19 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
               </div>
               <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
                 <Info size={18} className="text-white/70" />
-                <span>${restaurant.deliveryFee.toFixed(2)} delivery</span>
+                <span>{restaurant.currencySymbol || '$'}{restaurant.deliveryFee.toFixed(2)} delivery</span>
               </div>
+              {restaurant.address && (
+                <a 
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurant.name + ' ' + restaurant.address)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+                >
+                  <MapPin size={18} className="text-white/70" />
+                  <span>{restaurant.address}</span>
+                </a>
+              )}
             </div>
           </motion.div>
         </div>
@@ -238,7 +254,7 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
                               className="w-full h-full object-cover md:hover:scale-110 transition-transform duration-500"
                               referrerPolicy="no-referrer"
                               onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080&auto=format&fit=crop';
+                                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&q=80';
                               }}
                             />
                             {item.tags.includes('Popular') && (
@@ -251,7 +267,7 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
                             <div>
                               <div className="flex justify-between items-start mb-1">
                                 <h3 className="text-lg font-bold">{item.name}</h3>
-                                <span className="text-primary font-bold">${item.price.toFixed(2)}</span>
+                                <span className="text-primary font-bold">{restaurant.currencySymbol || '$'}{item.price.toFixed(2)}</span>
                               </div>
                               <p className="text-white/50 text-sm line-clamp-2 mb-3">{item.description}</p>
                               <div className="flex gap-2 flex-wrap">

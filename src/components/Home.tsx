@@ -1,9 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Search, Star, Clock, ChevronRight, ArrowRight, Heart, Sparkles, Plus, MessageSquare } from 'lucide-react';
+import { Search, Star, Clock, ChevronRight, ArrowRight, Heart, Sparkles, Plus, MessageSquare, MapPin, Gift } from 'lucide-react';
 import { toast } from 'sonner';
 import { MOCK_RESTAURANTS, CATEGORIES } from '../data/mockData';
-import { Restaurant } from '../types';
+import { Restaurant, Promotion } from '../types';
 import { ThreeDCard } from './ThreeDCard';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
@@ -67,8 +67,76 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
     });
   };
 
+  const [restaurants, setRestaurants] = useState<Restaurant[]>(MOCK_RESTAURANTS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRestaurants = async () => {
+      try {
+        const q = query(collection(db, 'restaurants'), where('isActive', '==', true));
+        const snapshot = await getDocs(q);
+        const firestoreRestaurants = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Restaurant));
+        
+        // Merge with mock data for demo purposes, but prefer firestore
+        const merged = [...firestoreRestaurants];
+        MOCK_RESTAURANTS.forEach(mock => {
+          if (!merged.find(r => r.id === mock.id)) {
+            merged.push(mock);
+          }
+        });
+        
+        setRestaurants(merged);
+      } catch (error) {
+        console.error('Error fetching restaurants:', error);
+        setRestaurants(MOCK_RESTAURANTS);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRestaurants();
+  }, []);
+
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [loadingPromos, setLoadingPromos] = useState(true);
+
+  useEffect(() => {
+    const fetchPromotions = async () => {
+      try {
+        const q = query(
+          collection(db, 'promotions'),
+          where('isActive', '==', true),
+          orderBy('createdAt', 'desc'),
+          limit(10)
+        );
+        const snapshot = await getDocs(q);
+        const activePromos = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Promotion));
+        setPromotions(activePromos);
+      } catch (error) {
+        console.error('Error fetching promotions:', error);
+      } finally {
+        setLoadingPromos(false);
+      }
+    };
+
+    fetchPromotions();
+  }, []);
+
+  const activePromotions = useMemo(() => {
+    return promotions.map(p => {
+      const restaurant = restaurants.find(r => r.id === p.restaurantId);
+      return { restaurant, promo: p };
+    }).filter(item => item.restaurant !== undefined) as { restaurant: Restaurant; promo: Promotion }[];
+  }, [promotions, restaurants]);
+
   const filteredRestaurants = useMemo(() => {
-    let result = MOCK_RESTAURANTS;
+    let result = restaurants;
     
     if (selectedCategory) {
       result = result.filter(r => r.categories.includes(selectedCategory));
@@ -96,12 +164,12 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
   }, [selectedCategory, searchQuery, activeDietaryFilters]);
 
   const topRatedRestaurants = useMemo(() => {
-    return [...MOCK_RESTAURANTS].sort((a, b) => b.rating - a.rating).slice(0, 6);
-  }, []);
+    return [...restaurants].sort((a, b) => b.rating - a.rating).slice(0, 6);
+  }, [restaurants]);
 
   const mostlyOrderedRestaurants = useMemo(() => {
-    return [...MOCK_RESTAURANTS].sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 6);
-  }, []);
+    return [...restaurants].sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 6);
+  }, [restaurants]);
 
   const handleCategoryClick = (catName: string) => {
     const isActive = selectedCategory === catName;
@@ -128,7 +196,7 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
         {/* Appetizing Background */}
         <div className="absolute inset-0">
           <img 
-            src="https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?q=80&w=2070&auto=format&fit=crop" 
+            src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1920&q=80" 
             alt="Delicious food craving" 
             className="w-full h-full object-cover"
           />
@@ -189,7 +257,43 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
       </motion.section>
       </div>
 
-      {/* AI Matchmaker Banner */}
+      {/* Promotions Section */}
+      {activePromotions.length > 0 && (
+        <section className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <Gift className="text-primary" size={20} />
+              Special Offers
+            </h2>
+          </div>
+          <div className="flex gap-6 overflow-x-auto pb-4 -mx-6 px-6 hide-scrollbar snap-x">
+            {activePromotions.map(({ restaurant, promo }, i) => (
+              <motion.div
+                key={promo.id}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.1 }}
+                onClick={() => onSelectRestaurant(restaurant)}
+                className="min-w-[300px] bg-gradient-to-br from-primary/20 to-orange-500/10 rounded-3xl p-6 border border-primary/20 relative overflow-hidden group cursor-pointer snap-start"
+              >
+                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110" />
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-1 bg-primary text-white text-[10px] font-black uppercase rounded tracking-widest shadow-lg shadow-primary/20">
+                      {promo.code}
+                    </span>
+                    <span className="text-xs font-bold text-primary">
+                      {promo.type === 'bogo' ? 'BUY 1 GET 1' : promo.type === 'discount' ? `${promo.value}% OFF` : `$${promo.value} OFF`}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold mb-1 group-hover:text-primary transition-colors">{restaurant.name}</h3>
+                  <p className="text-sm text-white/70 line-clamp-2">{promo.description}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+      )}
       <motion.section
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -555,6 +659,18 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
                           ${restaurant.deliveryFee.toFixed(2)} delivery
                         </div>
                       </div>
+                      {restaurant.address && (
+                        <a 
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurant.name + ' ' + restaurant.address)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-3 text-xs text-white/40 flex items-center gap-1.5 line-clamp-1 hover:text-primary transition-colors cursor-pointer"
+                        >
+                          <MapPin size={12} />
+                          {restaurant.address}
+                        </a>
+                      )}
                     </div>
                   </div>
                 </ThreeDCard>

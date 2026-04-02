@@ -8,9 +8,10 @@ interface CartDrawerProps {
   cart: CartItem[];
   updateQuantity: (id: string, delta: number) => void;
   onCheckout: () => void;
+  currencySymbol?: string;
 }
 
-export function CartDrawer({ isOpen, onClose, cart, updateQuantity, onCheckout }: CartDrawerProps) {
+export function CartDrawer({ isOpen, onClose, cart, updateQuantity, onCheckout, currencySymbol = '$' }: CartDrawerProps) {
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const deliveryFee = cart.length > 0 ? 2.99 : 0;
   const tax = subtotal * 0.08;
@@ -61,13 +62,13 @@ export function CartDrawer({ isOpen, onClose, cart, updateQuantity, onCheckout }
                       alt={item.name}
                       className="w-20 h-20 object-cover rounded-xl"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080&auto=format&fit=crop';
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&q=80';
                       }}
                     />
                     <div className="flex-1 flex flex-col justify-between">
                       <div>
                         <h3 className="font-semibold text-sm line-clamp-1">{item.name}</h3>
-                        <p className="text-primary font-medium mt-1">${item.price.toFixed(2)}</p>
+                        <p className="text-primary font-medium mt-1">{currencySymbol}{item.price.toFixed(2)}</p>
                       </div>
                       <div className="flex items-center gap-3 bg-white/5 w-fit rounded-lg p-1">
                         <button
@@ -95,19 +96,19 @@ export function CartDrawer({ isOpen, onClose, cart, updateQuantity, onCheckout }
                 <div className="space-y-3 mb-6 text-sm">
                   <div className="flex justify-between text-white/70">
                     <span>Subtotal</span>
-                    <span>${subtotal.toFixed(2)}</span>
+                    <span>{currencySymbol}{subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-white/70">
                     <span>Delivery Fee</span>
-                    <span>${deliveryFee.toFixed(2)}</span>
+                    <span>{currencySymbol}{deliveryFee.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-white/70">
                     <span>Tax</span>
-                    <span>${tax.toFixed(2)}</span>
+                    <span>{currencySymbol}{tax.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-lg font-bold pt-3 border-t border-white/10">
                     <span>Total</span>
-                    <span className="text-primary">${total.toFixed(2)}</span>
+                    <span className="text-primary">{currencySymbol}{total.toFixed(2)}</span>
                   </div>
                 </div>
                 <button

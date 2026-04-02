@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ShoppingBag } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
@@ -17,11 +17,13 @@ import { Orders } from './components/Orders';
 import { Profile } from './components/Profile';
 import { AIMatchmaker } from './components/AIMatchmaker';
 import { SuggestionModal } from './components/SuggestionModal';
+import { RestaurantOnboarding } from './components/RestaurantOnboarding';
 import { Restaurant, MenuItem, CartItem } from './types';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 function AppContent() {
+  const { refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -30,6 +32,7 @@ function AppContent() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isMatchmakerOpen, setIsMatchmakerOpen] = useState(false);
   const [isSuggestionModalOpen, setIsSuggestionModalOpen] = useState(false);
+  const [isRestaurantOnboardingOpen, setIsRestaurantOnboardingOpen] = useState(false);
 
   const toggleFavorite = (restaurantId: string) => {
     setFavorites(prev => 
@@ -80,11 +83,55 @@ function AppContent() {
     toast.success(`Order placed!`);
   };
 
+  useEffect(() => {
+    if (selectedRestaurant || isCheckout) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [selectedRestaurant, isCheckout]);
+
   return (
     <div className="min-h-screen bg-background text-white font-sans selection:bg-primary/30">
       <Toaster theme="dark" position="top-center" />
-      <AnimatePresence mode="wait">
-        {isCheckout ? (
+      
+      {/* Main Content (Always rendered to preserve scroll state) */}
+      <div aria-hidden={!!selectedRestaurant || isCheckout}>
+        {activeTab === 'home' && (
+          <Home 
+            onSelectRestaurant={setSelectedRestaurant} 
+            favorites={favorites}
+            toggleFavorite={toggleFavorite}
+            onOpenMatchmaker={() => setIsMatchmakerOpen(true)}
+            onOpenSuggestion={() => setIsSuggestionModalOpen(true)}
+            onSeeAllCategories={() => setActiveTab('search')}
+          />
+        )}
+        {activeTab === 'search' && (
+          <Search 
+            onSelectRestaurant={setSelectedRestaurant}
+            favorites={favorites}
+            toggleFavorite={toggleFavorite}
+          />
+        )}
+        {activeTab === 'orders' && <Orders />}
+        {activeTab === 'profile' && (
+          <Profile 
+            favorites={favorites}
+            toggleFavorite={toggleFavorite}
+            onSelectRestaurant={setSelectedRestaurant}
+            onOpenSuggestion={() => setIsSuggestionModalOpen(true)}
+            onOpenRestaurantOnboarding={() => setIsRestaurantOnboardingOpen(true)}
+          />
+        )}
+      </div>
+
+      {/* Overlays */}
+      <AnimatePresence>
+        {isCheckout && (
           <Checkout 
             key="checkout"
             onBack={() => setIsCheckout(false)}
@@ -93,7 +140,9 @@ function AppContent() {
             cart={cart}
             restaurant={selectedRestaurant}
           />
-        ) : selectedRestaurant ? (
+        )}
+        
+        {selectedRestaurant && !isCheckout && (
           <RestaurantMenu 
             key="menu"
             restaurant={selectedRestaurant}
@@ -102,40 +151,6 @@ function AppContent() {
             isFavorite={favorites.includes(selectedRestaurant.id)}
             onToggleFavorite={toggleFavorite}
           />
-        ) : (
-          <motion.div
-            key="home"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            {activeTab === 'home' && (
-              <Home 
-                onSelectRestaurant={setSelectedRestaurant} 
-                favorites={favorites}
-                toggleFavorite={toggleFavorite}
-                onOpenMatchmaker={() => setIsMatchmakerOpen(true)}
-                onOpenSuggestion={() => setIsSuggestionModalOpen(true)}
-                onSeeAllCategories={() => setActiveTab('search')}
-              />
-            )}
-            {activeTab === 'search' && (
-              <Search 
-                onSelectRestaurant={setSelectedRestaurant}
-                favorites={favorites}
-                toggleFavorite={toggleFavorite}
-              />
-            )}
-            {activeTab === 'orders' && <Orders />}
-            {activeTab === 'profile' && (
-              <Profile 
-                favorites={favorites}
-                toggleFavorite={toggleFavorite}
-                onSelectRestaurant={setSelectedRestaurant}
-                onOpenSuggestion={() => setIsSuggestionModalOpen(true)}
-              />
-            )}
-          </motion.div>
         )}
       </AnimatePresence>
 
@@ -158,6 +173,20 @@ function AppContent() {
           <SuggestionModal 
             isOpen={isSuggestionModalOpen}
             onClose={() => setIsSuggestionModalOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isRestaurantOnboardingOpen && (
+          <RestaurantOnboarding 
+            isOpen={isRestaurantOnboardingOpen}
+            onClose={() => setIsRestaurantOnboardingOpen(false)}
+            onComplete={async () => {
+              await refreshUser();
+              setActiveTab('profile');
+              toast.success('Welcome to the Crave family! Your restaurant is now live.');
+            }}
           />
         )}
       </AnimatePresence>
@@ -204,6 +233,7 @@ function AppContent() {
         cart={cart}
         updateQuantity={updateQuantity}
         onCheckout={handleCheckout}
+        currencySymbol={selectedRestaurant?.currencySymbol}
       />
     </div>
   );

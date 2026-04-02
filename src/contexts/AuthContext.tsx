@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User as FirebaseUser, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut, deleteUser } from 'firebase/auth';
+import { User as FirebaseUser, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut, deleteUser, updateProfile as firebaseUpdateProfile } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { supabase } from '../lib/supabase';
@@ -8,14 +8,20 @@ import { User as SupabaseUser } from '@supabase/supabase-js';
 interface AuthContextType {
   user: (FirebaseUser | SupabaseUser) | null;
   authType: 'firebase' | 'supabase' | null;
+  role: 'customer' | 'restaurant' | 'driver' | 'admin';
   cravePoints: number;
+  driverEarnings: number;
   isAuthReady: boolean;
   login: () => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string, name: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, name: string, role?: 'customer' | 'restaurant' | 'driver') => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   updateCravePoints: (points: number) => Promise<void>;
+  updateDriverEarnings: (amount: number) => Promise<void>;
+  updateProfileName: (name: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
+  setRole: (role: 'customer' | 'restaurant' | 'driver' | 'admin') => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,7 +29,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<(FirebaseUser | SupabaseUser) | null>(null);
   const [authType, setAuthType] = useState<'firebase' | 'supabase' | null>(null);
+  const [role, setRole] = useState<'customer' | 'restaurant' | 'driver' | 'admin'>('customer');
   const [cravePoints, setCravePoints] = useState(0);
+  const [driverEarnings, setDriverEarnings] = useState(0);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   useEffect(() => {
@@ -38,17 +46,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           if (userSnap.exists()) {
             setCravePoints(userSnap.data().cravePoints || 0);
+            setRole(userSnap.data().role || 'customer');
           } else {
-            const newProfile = {
+            const newProfile: any = {
               uid: currentUser.uid,
-              email: currentUser.email,
-              displayName: currentUser.displayName,
-              photoURL: currentUser.photoURL,
+              email: currentUser.email || 'no-email@example.com',
               cravePoints: 0,
+              role: 'customer', // Default role for new users
               createdAt: serverTimestamp()
             };
+            if (currentUser.displayName) newProfile.displayName = currentUser.displayName;
+            if (currentUser.photoURL) newProfile.photoURL = currentUser.photoURL;
+            
             await setDoc(userRef, newProfile);
             setCravePoints(0);
+            setRole('customer');
           }
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
@@ -70,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Fetch points from Supabase 'profiles' table
         const { data: profile, error } = await supabase
           .from('profiles')
-          .select('crave_points')
+          .select('crave_points, role, driver_earnings')
           .eq('id', session.user.id)
           .single();
 
@@ -80,19 +92,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (profile) {
           setCravePoints(profile.crave_points || 0);
+          setDriverEarnings(profile.driver_earnings || 0);
+          setRole(profile.role || 'customer');
         } else {
-          // Create profile if it doesn't exist
+          const userRole = session.user.user_metadata.role || 'customer';
           const { error: insertError } = await supabase
             .from('profiles')
             .insert({
               id: session.user.id,
               email: session.user.email,
               display_name: session.user.user_metadata.full_name || session.user.email?.split('@')[0],
-              crave_points: 0
+              crave_points: 0,
+              driver_earnings: 0,
+              role: userRole
             });
           
           if (insertError) console.error('Error creating Supabase profile:', insertError);
           setCravePoints(0);
+          setDriverEarnings(0);
+          setRole(userRole as any);
         }
       } else if (authType === 'supabase') {
         setUser(null);
@@ -112,8 +130,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed", error);
+    } catch (error: any) {
+      if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
+        console.log('Login popup closed by user.');
+      } else {
+        console.error("Login failed", error);
+      }
     }
   };
 
@@ -122,13 +144,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
   };
 
-  const signUpWithEmail = async (email: string, password: string, name: string) => {
+  const signUpWithEmail = async (email: string, password: string, name: string, selectedRole: 'customer' | 'restaurant' | 'driver' = 'customer') => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          full_name: name
+          full_name: name,
+          role: selectedRole
         }
       }
     });
@@ -144,6 +167,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.error("Logout failed", error);
+    }
+  };
+
+  const updateDriverEarnings = async (amount: number) => {
+    if (!user) return;
+    const newEarnings = driverEarnings + amount;
+
+    if (authType === 'firebase') {
+      try {
+        const userRef = doc(db, 'users', (user as FirebaseUser).uid);
+        await setDoc(userRef, { driverEarnings: newEarnings }, { merge: true });
+        setDriverEarnings(newEarnings);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${(user as FirebaseUser).uid}`);
+      }
+    } else if (authType === 'supabase') {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ driver_earnings: newEarnings })
+        .eq('id', (user as SupabaseUser).id);
+      
+      if (error) console.error('Error updating Supabase earnings:', error);
+      else setDriverEarnings(newEarnings);
     }
   };
 
@@ -187,6 +233,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateProfileName = async (name: string) => {
+    if (!user) return;
+    try {
+      if (authType === 'firebase') {
+        await firebaseUpdateProfile(user as FirebaseUser, { displayName: name });
+        await setDoc(doc(db, 'users', (user as SupabaseUser).id || (user as FirebaseUser).uid), { displayName: name }, { merge: true });
+        // Force a re-render by updating the user state
+        setUser({ ...user, displayName: name } as any);
+      } else if (authType === 'supabase') {
+        const { error } = await supabase.auth.updateUser({
+          data: { full_name: name }
+        });
+        if (error) throw error;
+        await supabase.from('profiles').update({ display_name: name }).eq('id', (user as SupabaseUser).id);
+        setUser({ ...user, user_metadata: { ...((user as SupabaseUser).user_metadata || {}), full_name: name } } as any);
+      }
+    } catch (error) {
+      console.error('Error updating profile name:', error);
+      throw error;
+    }
+  };
+
   const updateCravePoints = async (points: number) => {
     if (!user) return;
     const newPoints = cravePoints + points;
@@ -210,8 +278,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const refreshUser = async () => {
+    if (!user) return;
+
+    if (authType === 'firebase') {
+      try {
+        const userRef = doc(db, 'users', (user as FirebaseUser).uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          setCravePoints(userSnap.data().cravePoints || 0);
+          setDriverEarnings(userSnap.data().driverEarnings || 0);
+          setRole(userSnap.data().role || 'customer');
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `users/${(user as FirebaseUser).uid}`);
+      }
+    } else if (authType === 'supabase') {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('crave_points, driver_earnings, role')
+        .eq('id', (user as SupabaseUser).id)
+        .single();
+
+      if (!error && profile) {
+        setCravePoints(profile.crave_points || 0);
+        setDriverEarnings(profile.driver_earnings || 0);
+        setRole(profile.role || 'customer');
+      }
+    }
+  };
+
+  const updateRole = async (newRole: 'customer' | 'restaurant' | 'driver' | 'admin') => {
+    if (!user) return;
+    try {
+      if (authType === 'firebase') {
+        const userRef = doc(db, 'users', (user as FirebaseUser).uid);
+        await setDoc(userRef, { role: newRole }, { merge: true });
+        setRole(newRole);
+      } else if (authType === 'supabase') {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ role: newRole })
+          .eq('id', (user as SupabaseUser).id);
+        if (error) throw error;
+        setRole(newRole);
+      }
+    } catch (error) {
+      console.error('Error updating role:', error);
+      throw error;
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, authType, cravePoints, isAuthReady, login, loginWithEmail, signUpWithEmail, logout, deleteAccount, updateCravePoints }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      authType, 
+      role, 
+      cravePoints, 
+      driverEarnings,
+      isAuthReady, 
+      login, 
+      loginWithEmail, 
+      signUpWithEmail, 
+      logout, 
+      deleteAccount, 
+      updateCravePoints, 
+      updateDriverEarnings,
+      updateProfileName, 
+      refreshUser, 
+      setRole: updateRole 
+    }}>
       {children}
     </AuthContext.Provider>
   );

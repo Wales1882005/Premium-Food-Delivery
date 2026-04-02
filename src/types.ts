@@ -6,11 +6,26 @@ export interface MenuItem {
   image: string;
   category: string;
   tags: string[]; // e.g., 'Spicy', 'Vegan', 'Halal'
+  imagePrompt?: string;
+}
+
+export interface Promotion {
+  id: string;
+  restaurantId: string;
+  restaurantName: string;
+  type: 'bogo' | 'discount' | 'fixed';
+  code: string;
+  description: string;
+  value?: number; // e.g. 20 for 20%
+  isActive: boolean;
+  createdAt: any;
 }
 
 export interface Restaurant {
   id: string;
+  ownerId?: string;
   name: string;
+  description?: string;
   rating: number;
   deliveryTime: string;
   deliveryFee: number;
@@ -18,9 +33,68 @@ export interface Restaurant {
   categories: string[];
   menu: MenuItem[];
   priceRange: '$' | '$$' | '$$$' | '$$$$';
+  currencySymbol?: string;
   popularity?: number; // 0-100 score for "Mostly Ordered"
+  isActive?: boolean;
+  promotions?: Promotion[];
+  createdAt?: any;
+  // Location fields for Google Maps integration
+  address?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface CartItem extends MenuItem {
   quantity: number;
+}
+
+export type OrderStatus = 
+  | 'pending' 
+  | 'confirmed' 
+  | 'preparing' 
+  | 'ready_for_pickup' 
+  | 'driver_assigned'
+  | 'driver_arrived_at_restaurant'
+  | 'picked_up'
+  | 'on_the_way'
+  | 'driver_arrived_at_customer'
+  | 'delivered' 
+  | 'cancelled';
+
+export type PaymentMethod = 'card' | 'wallet' | 'cod';
+
+export interface Order {
+  id: string;
+  userId: string;
+  restaurantId: string;
+  restaurantOwnerId?: string;
+  restaurantName: string;
+  items: CartItem[];
+  total: number;
+  subtotal?: number;
+  deliveryFee?: number;
+  serviceFee?: number;
+  paymentMethod?: PaymentMethod;
+  status: OrderStatus;
+  createdAt: any;
+  deliveryAddress: string;
+  deliveryLat?: number;
+  deliveryLng?: number;
+  driverId?: string;
+  driverName?: string;
+  driverLat?: number;
+  driverLng?: number;
+  estimatedDeliveryTime?: any;
+}
+
+export interface Driver {
+  id: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+  lat?: number;
+  lng?: number;
+  rating: number;
+  totalEarnings: number;
+  totalOrders: number;
 }

@@ -7,4 +7,6 @@ if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KE
   console.warn('Supabase environment variables are missing in the platform settings. Using provided fallback values.');
 }
 
+console.log('Initializing Supabase with URL:', supabaseUrl);
+console.log('Supabase Key (first 10 chars):', supabaseAnonKey?.substring(0, 10) + '...');
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

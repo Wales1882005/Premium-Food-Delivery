@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, where } from 'firebase/firestore';
 import { supabase } from '../lib/supabase';
 import { User as FirebaseUser } from 'firebase/auth';
 import { User as SupabaseUser } from '@supabase/supabase-js';
@@ -25,6 +25,16 @@ interface OrderData {
   items: string; // JSON string of OrderItem[]
   userId?: string;
   deliveryAddress?: string;
+  driverLat?: number;
+  driverLng?: number;
+  estimatedDeliveryTime?: any;
+}
+
+interface ChatMessage {
+  id: string;
+  sender: 'user' | 'driver';
+  text: string;
+  createdAt: any;
 }
 
 export function Orders() {
@@ -34,18 +44,26 @@ export function Orders() {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [showChat, setShowChat] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState<{sender: 'user' | 'driver', text: string}[]>([
-    { sender: 'driver', text: 'Hi! I have picked up your order and I am on my way.' }
-  ]);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [isSimulating, setIsSimulating] = useState(false);
 
   const [orderToCancel, setOrderToCancel] = useState<string | null>(null);
+  const [reviewOrder, setReviewOrder] = useState<OrderData | null>(null);
+  const [showMap, setShowMap] = useState<string | null>(null);
 
   const handleCancelOrder = async (orderId: string) => {
     if (!user) return;
     
+    const order = orders.find(o => o.id === orderId);
+    if (order && order.status !== 'confirmed') {
+      toast.error('Cannot cancel order once it is being prepared. Please contact the restaurant.');
+      setOrderToCancel(null);
+      return;
+    }
+    
     try {
       if (authType === 'firebase') {
-        const orderRef = doc(db, 'users', (user as FirebaseUser).uid, 'orders', orderId);
+        const orderRef = doc(db, 'orders', orderId);
         await updateDoc(orderRef, { status: 'cancelled' });
       } else {
         await supabase
@@ -58,7 +76,7 @@ export function Orders() {
     } catch (error) {
       console.error('Error cancelling order:', error);
       if (authType === 'firebase') {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${(user as FirebaseUser).uid}/orders/${orderId}`);
+        handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
       } else {
         toast.error('Failed to cancel order');
       }
@@ -68,9 +86,6 @@ export function Orders() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    // The onSnapshot will handle the update if it's still active, 
-    // but we can manually trigger a reload if needed by re-setting user or similar.
-    // For now, just a visual feedback.
     setTimeout(() => setIsRefreshing(false), 1000);
   };
 
@@ -83,6 +98,7 @@ export function Orders() {
         total: order.total,
         status: 'confirmed',
         items: order.items,
+        driverId: null,
         createdAt: serverTimestamp()
       };
 
@@ -90,18 +106,26 @@ export function Orders() {
         const uid = (user as FirebaseUser).uid;
         newOrder.userId = uid;
         if (order.restaurantId) newOrder.restaurantId = order.restaurantId;
+        if ((order as any).restaurantOwnerId) newOrder.restaurantOwnerId = (order as any).restaurantOwnerId;
         if (order.deliveryAddress) newOrder.deliveryAddress = order.deliveryAddress;
         
-        await addDoc(collection(db, 'users', uid, 'orders'), newOrder);
+        await addDoc(collection(db, 'orders'), newOrder);
       } else {
-        await supabase.from('orders').insert({
+        const newOrderSupabase: any = {
           user_id: (user as SupabaseUser).id,
           restaurant_name: order.restaurantName,
           total: order.total,
           status: 'confirmed',
           items: JSON.parse(order.items),
           created_at: new Date().toISOString()
-        });
+        };
+        if (order.restaurantId) newOrderSupabase.restaurant_id = order.restaurantId;
+        if ((order as any).restaurantOwnerId) newOrderSupabase.restaurant_owner_id = (order as any).restaurantOwnerId;
+        if ((order as any).restaurant_owner_id) newOrderSupabase.restaurant_owner_id = (order as any).restaurant_owner_id;
+        if (order.deliveryAddress) newOrderSupabase.delivery_address = order.deliveryAddress;
+        if ((order as any).delivery_address) newOrderSupabase.delivery_address = (order as any).delivery_address;
+
+        await supabase.from('orders').insert(newOrderSupabase);
       }
       toast.success('Reordered successfully!');
     } catch (error) {
@@ -110,17 +134,96 @@ export function Orders() {
     }
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const activeOrder = orders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || orders[0];
+  const isOrderActive = activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled';
+
+  // Real-time Chat Listener
+  useEffect(() => {
+    if (!user || !activeOrder || !showChat || authType !== 'firebase') return;
+
+    const q = query(
+      collection(db, 'orders', activeOrder.id, 'messages'),
+      orderBy('createdAt', 'asc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const messages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ChatMessage[];
+      setChatHistory(messages);
+    });
+
+    return () => unsubscribe();
+  }, [user, activeOrder?.id, showChat, authType]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatMessage.trim()) return;
+    if (!chatMessage.trim() || !user || !activeOrder) return;
     
-    setChatHistory([...chatHistory, { sender: 'user', text: chatMessage }]);
+    const text = chatMessage;
     setChatMessage('');
+
+    try {
+      if (authType === 'firebase') {
+        await addDoc(collection(db, 'orders', activeOrder.id, 'messages'), {
+          sender: 'user',
+          text,
+          createdAt: serverTimestamp()
+        });
+
+        // Mock driver response after a delay
+        setTimeout(async () => {
+          await addDoc(collection(db, 'orders', activeOrder.id, 'messages'), {
+            sender: 'driver',
+            text: 'Got it! I will be there as soon as possible.',
+            createdAt: serverTimestamp()
+          });
+        }, 2000);
+      } else {
+        // Supabase chat logic could go here
+        toast.info('Chat is currently only available for Firebase users');
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+    }
+  };
+
+  const simulateDriverMovement = async () => {
+    if (!user || !activeOrder || authType !== 'firebase') return;
+    setIsSimulating(true);
+    toast.info('Starting real-time driver simulation...');
+
+    const orderRef = doc(db, 'orders', activeOrder.id);
     
-    // Mock driver response
-    setTimeout(() => {
-      setChatHistory(prev => [...prev, { sender: 'driver', text: 'Got it! I will be there as soon as possible.' }]);
-    }, 1500);
+    // Path coordinates (simulated)
+    const points = [
+      { lat: 40, lng: 390, status: 'preparing' },
+      { lat: 40, lng: 390, status: 'ready_for_pickup' },
+      { lat: 60, lng: 350, status: 'on_the_way' },
+      { lat: 80, lng: 300, status: 'on_the_way' },
+      { lat: 100, lng: 250, status: 'on_the_way' },
+      { lat: 150, lng: 150, status: 'on_the_way' },
+      { lat: 200, lng: 50, status: 'delivered' }
+    ];
+
+    for (let i = 0; i < points.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      try {
+        await updateDoc(orderRef, {
+          driverLat: points[i].lat,
+          driverLng: points[i].lng,
+          status: points[i].status,
+          estimatedDeliveryTime: i < points.length - 1 ? new Date(Date.now() + (points.length - i) * 60000) : null
+        });
+      } catch (err) {
+        console.error('Simulation error:', err);
+        break;
+      }
+    }
+    setIsSimulating(false);
+    toast.success('Simulation complete!');
   };
 
   useEffect(() => {
@@ -134,7 +237,8 @@ export function Orders() {
 
     if (authType === 'firebase') {
       const q = query(
-        collection(db, 'users', (user as FirebaseUser).uid, 'orders'),
+        collection(db, 'orders'),
+        where('userId', '==', (user as FirebaseUser).uid),
         orderBy('createdAt', 'desc')
       );
 
@@ -146,30 +250,36 @@ export function Orders() {
         setOrders(fetchedOrders);
         setLoading(false);
       }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, `users/${(user as FirebaseUser).uid}/orders`);
+        handleFirestoreError(error, OperationType.LIST, 'orders');
         setLoading(false);
       });
     } else if (authType === 'supabase') {
       const fetchSupabaseOrders = async () => {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('user_id', (user as SupabaseUser).id)
-          .order('created_at', { ascending: false });
+        try {
+          const { data, error } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('user_id', (user as SupabaseUser).id)
+            .order('created_at', { ascending: false });
 
-        if (error) {
-          console.error('Error fetching Supabase orders:', error);
-        } else {
-          setOrders(data.map(o => ({
-            id: o.id,
-            restaurantName: o.restaurant_name,
-            total: o.total,
-            status: o.status,
-            createdAt: { toDate: () => new Date(o.created_at) },
-            items: JSON.stringify(o.items)
-          })) as OrderData[]);
+          if (error) {
+            console.error('Error fetching Supabase orders:', error);
+            toast.error('Failed to load orders');
+          } else if (data) {
+            setOrders(data.map(o => ({
+              id: o.id,
+              restaurantName: o.restaurant_name,
+              total: o.total,
+              status: o.status,
+              createdAt: { toDate: () => new Date(o.created_at) },
+              items: JSON.stringify(o.items)
+            })) as OrderData[]);
+          }
+        } catch (err) {
+          console.error('Supabase orders fetch error:', err);
+        } finally {
+          setLoading(false);
         }
-        setLoading(false);
       };
 
       fetchSupabaseOrders();
@@ -191,6 +301,8 @@ export function Orders() {
       if (unsubscribeSupabase) unsubscribeSupabase();
     };
   }, [user, authType]);
+
+  // Removed local simulation useEffect as we now use real DB updates
 
   if (loading) {
     return (
@@ -214,9 +326,6 @@ export function Orders() {
     );
   }
 
-  const activeOrder = orders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || orders[0];
-  const isOrderActive = activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled';
-
   const parseItems = (itemsStr: string): OrderItem[] => {
     try {
       return JSON.parse(itemsStr);
@@ -225,11 +334,37 @@ export function Orders() {
     }
   };
 
+  const getStatusProgress = (status: string) => {
+    switch (status) {
+      case 'pending': return 10;
+      case 'confirmed': return 20;
+      case 'preparing': return 30;
+      case 'ready_for_pickup': return 40;
+      case 'driver_assigned': return 50;
+      case 'driver_arrived_at_restaurant': return 60;
+      case 'picked_up': return 70;
+      case 'on_the_way': return 80;
+      case 'driver_arrived_at_customer': return 90;
+      case 'delivered': return 100;
+      default: return 0;
+    }
+  };
+
   return (
     <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8">
       <div className="flex justify-between items-end">
         <h1 className="text-3xl font-bold">{isOrderActive ? 'Active Order' : 'Recent Order'}</h1>
         <div className="flex items-center gap-3">
+          {isOrderActive && authType === 'firebase' && (
+            <button 
+              onClick={simulateDriverMovement}
+              disabled={isSimulating}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all ${isSimulating ? 'bg-white/5 text-white/40' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            >
+              <Navigation size={18} className={isSimulating ? 'animate-pulse' : ''} />
+              {isSimulating ? 'Simulating...' : 'Simulate Driver'}
+            </button>
+          )}
           <button 
             onClick={handleRefresh}
             className={`p-2 bg-white/5 rounded-full hover:bg-white/10 transition-all ${isRefreshing ? 'animate-spin text-primary' : 'text-white/60'}`}
@@ -243,7 +378,7 @@ export function Orders() {
               className="flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full font-medium hover:bg-primary/20 transition-colors"
             >
               <MessageSquare size={18} />
-              Chat with Driver
+              Chat
             </button>
           )}
         </div>
@@ -278,17 +413,15 @@ export function Orders() {
               <span className="mt-1 text-xs font-bold bg-black/50 px-2 py-0.5 rounded backdrop-blur-sm">Restaurant</span>
             </div>
 
-            {/* Driver Pin (Animated) */}
+            {/* Driver Pin (Real-time or Simulated) */}
             <motion.div 
-              className="absolute top-[100px] left-[250px] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
+              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
               animate={{ 
-                x: [0, 50, 100, 150], 
-                y: [0, -20, -30, -50] 
+                top: activeOrder.driverLat || 100, 
+                left: activeOrder.driverLng || 250 
               }}
               transition={{ 
-                duration: 10, 
-                repeat: Infinity, 
-                repeatType: "reverse",
+                duration: 2, 
                 ease: "linear" 
               }}
             >
@@ -310,25 +443,64 @@ export function Orders() {
 
         {/* Order Details */}
         <div className="p-6 space-y-6">
+          {isOrderActive && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em] text-white/30">
+                <span className={['pending', 'confirmed'].includes(activeOrder.status) ? 'text-primary' : ''}>Confirmed</span>
+                <span className={['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'text-primary' : ''}>Preparing</span>
+                <span className={['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up'].includes(activeOrder.status) ? 'text-primary' : ''}>Rider</span>
+                <span className={['on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'text-primary' : ''}>On Way</span>
+                <span className={activeOrder.status === 'delivered' ? 'text-emerald-400' : ''}>Delivered</span>
+              </div>
+              <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/10">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${getStatusProgress(activeOrder.status)}%` }}
+                  className="h-full bg-gradient-to-r from-primary/50 to-primary shadow-[0_0_10px_rgba(242,125,38,0.5)]"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-between items-start">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold">
                   {activeOrder.status === 'delivered' ? 'Delivered' : 
                    activeOrder.status === 'cancelled' ? 'Order Cancelled' :
+                   activeOrder.status === 'driver_arrived_at_customer' ? 'Driver is arriving' :
                    activeOrder.status === 'on_the_way' ? 'Driver is on the way' :
+                   activeOrder.status === 'picked_up' ? 'Driver picked up order' :
+                   activeOrder.status === 'driver_arrived_at_restaurant' ? 'Driver at restaurant' :
+                   activeOrder.status === 'driver_assigned' ? 'Driver assigned' :
+                   activeOrder.status === 'ready_for_pickup' ? 'Food is ready for pickup' :
                    activeOrder.status === 'preparing' ? 'Preparing your food' :
-                   'Order Confirmed'}
+                   activeOrder.status === 'confirmed' ? 'Order Confirmed' :
+                   'Pending Restaurant Acceptance'}
                 </h2>
                 {activeOrder.status === 'delivered' && <CheckCircle2 className="text-green-500" size={20} />}
               </div>
               <p className="text-white/60 text-sm">Your order from {activeOrder.restaurantName}</p>
+              {activeOrder.estimatedDeliveryTime && (
+                <p className="text-primary text-xs font-bold flex items-center gap-1 mt-1">
+                  <Clock size={12} />
+                  Estimated Arrival: {new Date(activeOrder.estimatedDeliveryTime?.toDate?.() || activeOrder.estimatedDeliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="bg-primary/20 text-primary p-3 rounded-2xl">
                 <Clock size={24} />
               </div>
-              {isOrderActive && (activeOrder.status === 'confirmed' || activeOrder.status === 'preparing') && (
+              {isOrderActive && (['confirmed', 'preparing', 'ready_for_pickup', 'driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status)) && (
+                <button 
+                  onClick={() => setShowMap(showMap === activeOrder.id ? null : activeOrder.id)}
+                  className="text-xs bg-primary/10 text-primary px-4 py-2 rounded-xl font-bold hover:bg-primary hover:text-white transition-all flex items-center gap-2 border border-primary/20"
+                >
+                  <MapIcon size={14} /> {showMap === activeOrder.id ? 'Hide Map' : 'Track Order'}
+                </button>
+              )}
+              {isOrderActive && (activeOrder.status === 'pending' || activeOrder.status === 'confirmed' || activeOrder.status === 'preparing') && (
                 <div className="flex flex-col items-end gap-2">
                   {orderToCancel === activeOrder.id ? (
                     <div className="flex flex-col items-end gap-2">
@@ -361,35 +533,96 @@ export function Orders() {
             </div>
           </div>
 
+          {isOrderActive && showMap === activeOrder.id && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-6 bg-black/40 rounded-3xl overflow-hidden border border-white/5"
+            >
+              <div className="h-[300px] relative p-4">
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10" />
+                
+                <div className="absolute top-10 right-10 flex flex-col items-center">
+                  <div className="p-2 bg-primary rounded-full shadow-lg shadow-primary/20">
+                    <Navigation size={20} className="text-white" />
+                  </div>
+                  <span className="text-[10px] font-bold mt-1 text-white/60">Restaurant</span>
+                </div>
+
+                <div className="absolute bottom-10 left-10 flex flex-col items-center">
+                  <div className="p-2 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/20">
+                    <MapPin size={20} className="text-white" />
+                  </div>
+                  <span className="text-[10px] font-bold mt-1 text-white/60">You</span>
+                </div>
+
+                <motion.div 
+                  animate={{ 
+                    top: activeOrder.driverLat ? `${activeOrder.driverLat}px` : `40%`, 
+                    left: activeOrder.driverLng ? `${activeOrder.driverLng}px` : `60%` 
+                  }}
+                  className="absolute z-10 flex flex-col items-center"
+                >
+                  <div className="p-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/20 animate-bounce">
+                    <Navigation size={20} className="text-white" />
+                  </div>
+                  <span className="text-[10px] font-bold mt-1 text-blue-400">Driver</span>
+                </motion.div>
+
+                <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
+                  <line x1="10%" y1="90%" x2="90%" y2="10%" stroke="white" strokeWidth="2" strokeDasharray="5,5" />
+                </svg>
+              </div>
+              <div className="p-4 bg-white/5 border-t border-white/5 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                    <Navigation size={20} className="text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold">Driver is on the way</p>
+                    <p className="text-xs text-white/40">Estimated arrival: 12 mins</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowChat(true)}
+                  className="p-3 bg-white/5 rounded-full hover:bg-white/10 transition-colors"
+                >
+                  <MessageSquare size={20} className="text-primary" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {isOrderActive && (
             <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-white/10 before:to-transparent">
               {/* Status Steps */}
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-background bg-primary text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
-                  <CheckCircle2 size={20} />
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['pending', 'confirmed'].includes(activeOrder.status) ? 'bg-primary' : 'bg-zinc-800 text-white/40'}`}>
+                  {['pending', 'confirmed'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : <CheckCircle2 size={20} />}
                 </div>
-                <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl bg-white/5 border border-white/10">
-                  <h3 className="font-bold text-primary">Order Confirmed</h3>
+                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['pending', 'confirmed'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
+                  <h3 className={`font-bold ${['pending', 'confirmed'].includes(activeOrder.status) ? 'text-white' : 'text-primary'}`}>Order Confirmed</h3>
                   <p className="text-sm text-white/60">The restaurant has accepted your order.</p>
                 </div>
               </div>
 
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${activeOrder.status !== 'confirmed' ? 'bg-primary' : 'bg-zinc-800 text-white/40'}`}>
-                  {activeOrder.status !== 'confirmed' ? <CheckCircle2 size={20} /> : <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />}
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'bg-primary' : (['pending', 'confirmed'].includes(activeOrder.status) ? 'bg-zinc-800 text-white/40' : 'bg-primary')}`}>
+                  {['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : (['pending', 'confirmed'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white/20" /> : <CheckCircle2 size={20} />)}
                 </div>
-                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${activeOrder.status === 'preparing' ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
-                  <h3 className={`font-bold ${activeOrder.status === 'preparing' ? 'text-white' : (activeOrder.status === 'confirmed' ? 'text-white/40' : 'text-primary')}`}>Preparing Food</h3>
+                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
+                  <h3 className={`font-bold ${['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'text-white' : (['pending', 'confirmed'].includes(activeOrder.status) ? 'text-white/40' : 'text-primary')}`}>Preparing Food</h3>
                   <p className="text-sm text-white/60">Your food is being prepared.</p>
                 </div>
               </div>
 
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${activeOrder.status === 'delivered' ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40'}`}>
-                  {activeOrder.status === 'delivered' ? <CheckCircle2 size={20} /> : (activeOrder.status === 'on_the_way' ? <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />)}
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'bg-primary text-white' : (activeOrder.status === 'delivered' ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40')}`}>
+                  {activeOrder.status === 'delivered' ? <CheckCircle2 size={20} /> : (['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />)}
                 </div>
-                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${activeOrder.status === 'on_the_way' ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
-                  <h3 className={`font-bold ${activeOrder.status === 'on_the_way' ? 'text-white' : (activeOrder.status === 'delivered' ? 'text-primary' : 'text-white/40')}`}>On the Way</h3>
+                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
+                  <h3 className={`font-bold ${['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'text-white' : (activeOrder.status === 'delivered' ? 'text-primary' : 'text-white/40')}`}>On the Way</h3>
                   <p className="text-sm text-white/60">Driver is heading to your location.</p>
                 </div>
               </div>
@@ -470,9 +703,12 @@ export function Orders() {
                     Reorder
                   </button>
                   {order.status === 'delivered' && (
-                    <button className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 border border-primary/20">
+                    <button 
+                      onClick={() => setReviewOrder(order)}
+                      className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 border border-emerald-500/20"
+                    >
                       <Star size={16} />
-                      Rate
+                      Review
                     </button>
                   )}
                   <button 
@@ -507,6 +743,16 @@ export function Orders() {
           </div>
         </div>
       )}
+
+      {/* Review Modal */}
+      <AnimatePresence>
+        {reviewOrder && (
+          <ReviewModal 
+            order={reviewOrder} 
+            onClose={() => setReviewOrder(null)} 
+          />
+        )}
+      </AnimatePresence>
 
       {/* Chat Modal */}
       <AnimatePresence>
@@ -568,5 +814,151 @@ export function Orders() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ReviewModal({ order, onClose }: { order: OrderData; onClose: () => void }) {
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { user, authType } = useAuth();
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhoto(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!user) return;
+    setIsSubmitting(true);
+
+    try {
+      const reviewData = {
+        orderId: order.id,
+        restaurantId: order.restaurantId,
+        restaurantName: order.restaurantName,
+        userId: (user as any).uid || (user as any).id,
+        userName: (user as any).displayName || (user as any).email?.split('@')[0] || 'Anonymous',
+        rating,
+        comment,
+        photo,
+        createdAt: serverTimestamp(),
+      };
+
+      if (authType === 'firebase') {
+        await addDoc(collection(db, 'reviews'), reviewData);
+      } else {
+        await supabase.from('reviews').insert([reviewData]);
+      }
+
+      toast.success('Review submitted successfully!');
+      onClose();
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      toast.error('Failed to submit review');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.9, opacity: 0, y: 20 }}
+        className="bg-zinc-900 w-full max-w-lg rounded-[2.5rem] border border-white/10 overflow-hidden"
+      >
+        <div className="p-8">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h2 className="text-2xl font-bold">Review Your Meal</h2>
+              <p className="text-white/40 text-sm">{order.restaurantName}</p>
+            </div>
+            <button 
+              onClick={onClose}
+              className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="space-y-6">
+            {/* Rating */}
+            <div className="flex justify-center gap-2">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setRating(star)}
+                  className={`p-2 transition-all ${rating >= star ? 'text-primary scale-110' : 'text-white/10'}`}
+                >
+                  <Star size={32} fill={rating >= star ? 'currentColor' : 'none'} />
+                </button>
+              ))}
+            </div>
+
+            {/* Comment */}
+            <div>
+              <label className="block text-sm font-bold text-white/60 mb-2">Your Feedback</label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="How was the food? Any special mentions?"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white placeholder:text-white/20 focus:outline-none focus:border-primary/50 min-h-[120px] resize-none"
+              />
+            </div>
+
+            {/* Photo Upload */}
+            <div>
+              <label className="block text-sm font-bold text-white/60 mb-2">Add a Photo</label>
+              <div className="flex gap-4">
+                {photo ? (
+                  <div className="relative w-24 h-24 rounded-2xl overflow-hidden border border-white/10">
+                    <img src={photo} alt="Review" className="w-full h-full object-cover" />
+                    <button 
+                      onClick={() => setPhoto(null)}
+                      className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white hover:bg-black/80"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="w-24 h-24 rounded-2xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-all group">
+                    <Camera size={24} className="text-white/20 group-hover:text-primary transition-colors" />
+                    <span className="text-[10px] font-bold text-white/20 mt-1">Add Photo</span>
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                  </label>
+                )}
+                <div className="flex-1 flex items-center">
+                  <p className="text-xs text-white/40 italic">"Photos help other foodies make better choices!"</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Submit */}
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !comment}
+              className="w-full py-4 bg-primary text-white rounded-2xl font-bold hover:scale-[1.02] active:scale-[0.98] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? <RefreshCw className="animate-spin" size={20} /> : <Send size={20} />}
+              {isSubmitting ? 'Submitting...' : 'Submit Review'}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

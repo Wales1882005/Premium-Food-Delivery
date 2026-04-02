@@ -269,7 +269,7 @@ export function Search({ onSelectRestaurant, favorites, toggleFavorite }: Search
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                         referrerPolicy="no-referrer"
                         onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=2080&auto=format&fit=crop';
+                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&q=80';
                         }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-surface via-transparent to-transparent" />

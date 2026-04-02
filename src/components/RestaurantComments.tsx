@@ -53,15 +53,17 @@ export function RestaurantComments({ restaurantId, restaurantName }: RestaurantC
 
     setIsSubmitting(true);
     try {
-      const commentData = {
+      const commentData: any = {
         userId: (user as any).uid,
         userName: (user as any).displayName || 'Anonymous',
-        userPhoto: (user as any).photoURL || '',
         restaurantId,
         text: newComment,
         rating,
         createdAt: serverTimestamp()
       };
+      if ((user as any).photoURL) {
+        commentData.userPhoto = (user as any).photoURL;
+      }
 
       await addDoc(collection(db, 'comments'), commentData);
       toast.success('Review submitted! Thank you.');

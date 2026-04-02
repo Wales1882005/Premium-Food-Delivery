@@ -81,29 +81,64 @@ service cloud.firestore {
       return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
     }
 
+    function isValidImageUrl(url) {
+      return url is string && (
+        url.matches("^https://.*") || 
+        url.matches("^http://.*") || 
+        url.matches("^data:image/.*")
+      );
+    }
+
+    function getUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data : null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') || 
+        (request.auth.token.email == "waishwe987@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isDriver() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'driver';
+    }
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
 
     function isValidUser(data) {
-      return hasRequiredFields(['uid', 'email', 'cravePoints', 'createdAt']) &&
+      return hasRequiredFields(['uid', 'email', 'cravePoints', 'role']) &&
              data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
              data.email is string && isValidEmail(data.email) && data.email.size() < 100 &&
+             data.role in ['customer', 'restaurant', 'driver', 'admin'] &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
-             (!('photoURL' in data) || (data.photoURL is string && isValidUrl(data.photoURL) && data.photoURL.size() < 500)) &&
+             (!('photoURL' in data) || (data.photoURL is string && isValidImageUrl(data.photoURL) && data.photoURL.size() < 1000000)) &&
              data.cravePoints is number && data.cravePoints >= 0 &&
-             data.createdAt is timestamp;
+             (!('driverEarnings' in data) || (data.driverEarnings is number && data.driverEarnings >= 0)) &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
     }
 
     function isValidOrder(data) {
-      return hasRequiredFields(['restaurantName', 'items', 'total', 'status', 'createdAt']) &&
-             (!('userId' in data) || (data.userId is string && data.userId.size() < 100)) &&
-             (!('restaurantId' in data) || (data.restaurantId is string && data.restaurantId.size() < 100)) &&
+      return hasRequiredFields(['userId', 'restaurantId', 'restaurantName', 'items', 'total', 'status', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.restaurantId is string && data.restaurantId.size() > 0 && data.restaurantId.size() < 100 &&
+             (!('restaurantOwnerId' in data) || data.restaurantOwnerId == null || (data.restaurantOwnerId is string && data.restaurantOwnerId.size() < 100)) &&
              data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100 &&
              data.items is string && data.items.size() > 0 && data.items.size() < 10000 &&
              data.total is number && data.total >= 0 &&
-             data.status in ['confirmed', 'preparing', 'on_the_way', 'delivered', 'cancelled'] &&
+             data.status in ['confirmed', 'preparing', 'ready_for_pickup', 'on_the_way', 'delivered', 'cancelled'] &&
              (!('deliveryAddress' in data) || (data.deliveryAddress is string && data.deliveryAddress.size() < 500)) &&
+             (!('driverId' in data) || data.driverId == null || (data.driverId is string && data.driverId.size() < 100)) &&
+             (!('driverName' in data) || data.driverName == null || (data.driverName is string && data.driverName.size() < 100)) &&
+             (!('driverLat' in data) || (data.driverLat is number)) &&
+             (!('driverLng' in data) || (data.driverLng is number)) &&
+             (!('estimatedDeliveryTime' in data) || (data.estimatedDeliveryTime is timestamp)) &&
              data.createdAt is timestamp;
     }
 
@@ -128,23 +163,130 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidRestaurant(data) {
+      return hasRequiredFields(['ownerId', 'name', 'image', 'rating']) &&
+             data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('description' in data) || (data.description is string && data.description.size() < 1000)) &&
+             data.image is string && isValidImageUrl(data.image) && data.image.size() < 1000000 &&
+             data.rating is number && data.rating >= 0 && data.rating <= 5 &&
+             (!('deliveryTime' in data) || (data.deliveryTime is string && data.deliveryTime.size() < 50)) &&
+             (!('deliveryFee' in data) || (data.deliveryFee is number && data.deliveryFee >= 0)) &&
+             (!('tags' in data) || (data.tags is string && data.tags.size() < 1000)) &&
+             (!('categories' in data) || (data.categories is list)) &&
+             (!('priceRange' in data) || (data.priceRange is string)) &&
+             (!('menu' in data) || (data.menu is list)) &&
+             (!('address' in data) || (data.address is string && data.address.size() < 500)) &&
+             (!('lat' in data) || (data.lat is number && data.lat >= -90 && data.lat <= 90)) &&
+             (!('lng' in data) || (data.lng is number && data.lng >= -180 && data.lng <= 180)) &&
+             (!('currencySymbol' in data) || (data.currencySymbol is string && data.currencySymbol.size() < 10)) &&
+             (!('isActive' in data) || (data.isActive is bool)) &&
+             (!('createdAt' in data) || (data.createdAt is timestamp));
+    }
+
+    function isValidMenuItem(data) {
+      return hasRequiredFields(['restaurantId', 'name', 'description', 'price', 'image', 'category', 'isAvailable']) &&
+             data.restaurantId is string && data.restaurantId.size() > 0 && data.restaurantId.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.description is string && data.description.size() < 1000 &&
+             data.price is number && data.price >= 0 &&
+             data.image is string && isValidImageUrl(data.image) && data.image.size() < 1000000 &&
+             data.category is string && data.category.size() > 0 && data.category.size() < 50 &&
+             data.isAvailable is bool;
+    }
+
+    function isValidPromotion(data) {
+      return hasRequiredFields(['restaurantId', 'restaurantName', 'type', 'code', 'description', 'isActive', 'createdAt']) &&
+             data.restaurantId is string && data.restaurantId.size() > 0 && data.restaurantId.size() < 100 &&
+             data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100 &&
+             data.type in ['bogo', 'discount', 'fixed'] &&
+             data.code is string && data.code.size() > 0 && data.code.size() < 20 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 500 &&
+             (!('value' in data) || (data.value is number && data.value >= 0)) &&
+             data.isActive is bool &&
+             data.createdAt is timestamp;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
 
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || 
+        ('restaurantOwnerId' in resource.data && resource.data.restaurantOwnerId == request.auth.uid) ||
+        (isDriver() && (
+          (!('driverId' in resource.data) || resource.data.driverId == null) || 
+          resource.data.driverId == request.auth.uid
+        )) ||
+        isAdmin()
+      );
+      
+      allow create: if isAuthenticated() && 
+                       isValidOrder(request.resource.data) &&
+                       request.resource.data.userId == request.auth.uid;
+                       
+      allow update: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+         request.resource.data.status == 'cancelled') ||
+        ('restaurantOwnerId' in resource.data && resource.data.restaurantOwnerId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+        (isDriver() && (
+          // Accepting an order
+          (
+            (!('driverId' in resource.data) || resource.data.driverId == null) &&
+            request.resource.data.driverId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['driverId', 'driverName', 'status', 'driverLat', 'driverLng'])
+          ) ||
+          // Updating an accepted order
+          (
+            resource.data.driverId == request.auth.uid &&
+            request.resource.data.driverId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'driverLat', 'driverLng', 'estimatedDeliveryTime'])
+          )
+        )) ||
+        isAdmin()
+      );
+      
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+          (exists(/databases/$(database)/documents/restaurants/$(get(/databases/$(database)/documents/orders/$(orderId)).data.restaurantId)) &&
+           get(/databases/$(database)/documents/restaurants/$(get(/databases/$(database)/documents/orders/$(orderId)).data.restaurantId)).data.ownerId == request.auth.uid) ||
+          (isDriver() && get(/databases/$(database)/documents/orders/$(orderId)).data.driverId == request.auth.uid)
+        );
+        allow create: if isAuthenticated() && (
+          (get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid && request.resource.data.sender == 'user') ||
+          (exists(/databases/$(database)/documents/restaurants/$(get(/databases/$(database)/documents/orders/$(orderId)).data.restaurantId)) &&
+           get(/databases/$(database)/documents/restaurants/$(get(/databases/$(database)/documents/orders/$(orderId)).data.restaurantId)).data.ownerId == request.auth.uid && request.resource.data.sender == 'restaurant') ||
+          (isDriver() && get(/databases/$(database)/documents/orders/$(orderId)).data.driverId == request.auth.uid && request.resource.data.sender == 'driver')
+        ) &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() < 500 &&
+        request.resource.data.createdAt is timestamp;
+      }
+    }
+
     match /users/{userId} {
-      allow read: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
       
       allow create: if isOwner(userId) && 
                        isValidUser(request.resource.data) && 
                        uidUnchanged() &&
-                       request.resource.data.uid == userId;
+                       request.resource.data.uid == userId &&
+                       (request.resource.data.role == 'customer' || isAdmin());
                        
       allow update: if isOwner(userId) && 
                        isValidUser(request.resource.data) && 
                        uidNotModified() &&
-                       request.resource.data.createdAt == resource.data.createdAt &&
-                       request.resource.data.email == resource.data.email;
+                       (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+                       (!('email' in resource.data) || request.resource.data.email == resource.data.email) &&
+                       (request.resource.data.role == resource.data.role || 
+                        (resource.data.role == 'customer' && request.resource.data.role in ['restaurant', 'driver']) ||
+                        isAdmin());
                        
       allow delete: if false; // Users cannot be deleted from client
 
@@ -153,7 +295,7 @@ service cloud.firestore {
         
         allow create: if isOwner(userId) && 
                          isValidOrder(request.resource.data) &&
-                         request.resource.data.userId == userId;
+                         (!('userId' in request.resource.data) || request.resource.data.userId == userId);
                          
         allow update: if isOwner(userId) && 
                          isValidOrder(request.resource.data) &&
@@ -162,10 +304,19 @@ service cloud.firestore {
                          request.resource.data.restaurantName == resource.data.restaurantName &&
                          request.resource.data.items == resource.data.items &&
                          request.resource.data.total == resource.data.total &&
-                         request.resource.data.deliveryAddress == resource.data.deliveryAddress &&
+                         (!('deliveryAddress' in resource.data) ? !('deliveryAddress' in request.resource.data) : request.resource.data.deliveryAddress == resource.data.deliveryAddress) &&
                          request.resource.data.createdAt == resource.data.createdAt;
                          
         allow delete: if false; // Orders cannot be deleted
+
+        match /messages/{messageId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) && 
+                           request.resource.data.sender in ['user', 'driver'] &&
+                           request.resource.data.text is string &&
+                           request.resource.data.text.size() < 500 &&
+                           request.resource.data.createdAt is timestamp;
+        }
       }
     }
 
@@ -189,6 +340,46 @@ service cloud.firestore {
                        request.resource.data.restaurantId == resource.data.restaurantId &&
                        request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    match /restaurants/{restaurantId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && 
+                       request.resource.data.ownerId == request.auth.uid &&
+                       isValidRestaurant(request.resource.data);
+      allow update: if isAuthenticated() && 
+                       isValidRestaurant(request.resource.data) &&
+                       resource.data.ownerId == request.auth.uid &&
+                       request.resource.data.ownerId == resource.data.ownerId &&
+                       request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAdmin();
+
+      match /menuItems/{itemId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && 
+                         isValidMenuItem(request.resource.data) &&
+                         get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId == request.auth.uid;
+        allow update: if isAuthenticated() && 
+                         isValidMenuItem(request.resource.data) &&
+                         get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId == request.auth.uid &&
+                         request.resource.data.restaurantId == resource.data.restaurantId;
+        allow delete: if isAuthenticated() && 
+                         get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId == request.auth.uid;
+      }
+    }
+
+    match /promotions/{promotionId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && 
+                       isValidPromotion(request.resource.data) &&
+                       get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.ownerId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+                       isValidPromotion(request.resource.data) &&
+                       get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.ownerId == request.auth.uid &&
+                       request.resource.data.restaurantId == resource.data.restaurantId &&
+                       request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAuthenticated() && 
+                       get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.ownerId == request.auth.uid;
     }
   }
 }
