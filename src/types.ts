@@ -53,11 +53,8 @@ export type OrderStatus =
   | 'confirmed' 
   | 'preparing' 
   | 'ready_for_pickup' 
-  | 'driver_assigned'
-  | 'driver_arrived_at_restaurant'
   | 'picked_up'
   | 'on_the_way'
-  | 'driver_arrived_at_customer'
   | 'delivered' 
   | 'cancelled';
 
@@ -80,21 +77,5 @@ export interface Order {
   deliveryAddress: string;
   deliveryLat?: number;
   deliveryLng?: number;
-  driverId?: string;
-  driverName?: string;
-  driverLat?: number;
-  driverLng?: number;
   estimatedDeliveryTime?: any;
-}
-
-export interface Driver {
-  id: string;
-  name: string;
-  email: string;
-  isActive: boolean;
-  lat?: number;
-  lng?: number;
-  rating: number;
-  totalEarnings: number;
-  totalOrders: number;
 }

@@ -8,20 +8,18 @@ import { User as SupabaseUser } from '@supabase/supabase-js';
 interface AuthContextType {
   user: (FirebaseUser | SupabaseUser) | null;
   authType: 'firebase' | 'supabase' | null;
-  role: 'customer' | 'restaurant' | 'driver' | 'admin';
+  role: 'customer' | 'restaurant' | 'admin';
   cravePoints: number;
-  driverEarnings: number;
   isAuthReady: boolean;
   login: () => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string, name: string, role?: 'customer' | 'restaurant' | 'driver') => Promise<void>;
+  signUpWithEmail: (email: string, password: string, name: string, role?: 'customer' | 'restaurant') => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   updateCravePoints: (points: number) => Promise<void>;
-  updateDriverEarnings: (amount: number) => Promise<void>;
   updateProfileName: (name: string) => Promise<void>;
   refreshUser: () => Promise<void>;
-  setRole: (role: 'customer' | 'restaurant' | 'driver' | 'admin') => Promise<void>;
+  setRole: (role: 'customer' | 'restaurant' | 'admin') => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,9 +27,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<(FirebaseUser | SupabaseUser) | null>(null);
   const [authType, setAuthType] = useState<'firebase' | 'supabase' | null>(null);
-  const [role, setRole] = useState<'customer' | 'restaurant' | 'driver' | 'admin'>('customer');
+  const [role, setRole] = useState<'customer' | 'restaurant' | 'admin'>('customer');
   const [cravePoints, setCravePoints] = useState(0);
-  const [driverEarnings, setDriverEarnings] = useState(0);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   useEffect(() => {
@@ -82,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Fetch points from Supabase 'profiles' table
         const { data: profile, error } = await supabase
           .from('profiles')
-          .select('crave_points, role, driver_earnings')
+          .select('crave_points, role')
           .eq('id', session.user.id)
           .single();
 
@@ -92,7 +89,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (profile) {
           setCravePoints(profile.crave_points || 0);
-          setDriverEarnings(profile.driver_earnings || 0);
           setRole(profile.role || 'customer');
         } else {
           const userRole = session.user.user_metadata.role || 'customer';
@@ -103,13 +99,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email: session.user.email,
               display_name: session.user.user_metadata.full_name || session.user.email?.split('@')[0],
               crave_points: 0,
-              driver_earnings: 0,
               role: userRole
             });
           
           if (insertError) console.error('Error creating Supabase profile:', insertError);
           setCravePoints(0);
-          setDriverEarnings(0);
           setRole(userRole as any);
         }
       } else if (authType === 'supabase') {
@@ -144,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
   };
 
-  const signUpWithEmail = async (email: string, password: string, name: string, selectedRole: 'customer' | 'restaurant' | 'driver' = 'customer') => {
+  const signUpWithEmail = async (email: string, password: string, name: string, selectedRole: 'customer' | 'restaurant' | 'admin' = 'customer') => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -167,29 +161,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.error("Logout failed", error);
-    }
-  };
-
-  const updateDriverEarnings = async (amount: number) => {
-    if (!user) return;
-    const newEarnings = driverEarnings + amount;
-
-    if (authType === 'firebase') {
-      try {
-        const userRef = doc(db, 'users', (user as FirebaseUser).uid);
-        await setDoc(userRef, { driverEarnings: newEarnings }, { merge: true });
-        setDriverEarnings(newEarnings);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${(user as FirebaseUser).uid}`);
-      }
-    } else if (authType === 'supabase') {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ driver_earnings: newEarnings })
-        .eq('id', (user as SupabaseUser).id);
-      
-      if (error) console.error('Error updating Supabase earnings:', error);
-      else setDriverEarnings(newEarnings);
     }
   };
 
@@ -287,7 +258,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
           setCravePoints(userSnap.data().cravePoints || 0);
-          setDriverEarnings(userSnap.data().driverEarnings || 0);
           setRole(userSnap.data().role || 'customer');
         }
       } catch (error) {
@@ -296,19 +266,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else if (authType === 'supabase') {
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('crave_points, driver_earnings, role')
+        .select('crave_points, role')
         .eq('id', (user as SupabaseUser).id)
         .single();
 
       if (!error && profile) {
         setCravePoints(profile.crave_points || 0);
-        setDriverEarnings(profile.driver_earnings || 0);
         setRole(profile.role || 'customer');
       }
     }
   };
 
-  const updateRole = async (newRole: 'customer' | 'restaurant' | 'driver' | 'admin') => {
+  const updateRole = async (newRole: 'customer' | 'restaurant' | 'admin') => {
     if (!user) return;
     try {
       if (authType === 'firebase') {
@@ -335,7 +304,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authType, 
       role, 
       cravePoints, 
-      driverEarnings,
       isAuthReady, 
       login, 
       loginWithEmail, 
@@ -343,7 +311,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout, 
       deleteAccount, 
       updateCravePoints, 
-      updateDriverEarnings,
       updateProfileName, 
       refreshUser, 
       setRole: updateRole 

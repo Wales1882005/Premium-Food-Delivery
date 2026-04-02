@@ -4,7 +4,7 @@ import { Search as SearchIcon, Star, Clock, Heart, Sparkles, MessageSquare } fro
 import { MOCK_RESTAURANTS } from '../data/mockData';
 import { Restaurant } from '../types';
 import { db } from '../firebase';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
 
 interface SearchProps {
   onSelectRestaurant: (restaurant: Restaurant) => void;
@@ -15,21 +15,54 @@ interface SearchProps {
 export function Search({ onSelectRestaurant, favorites, toggleFavorite }: SearchProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [recentReviews, setRecentReviews] = useState<Record<string, any>>({});
+  const [restaurants, setRestaurants] = useState<Restaurant[]>(MOCK_RESTAURANTS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'restaurants'), where('isActive', '==', true));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const firestoreRestaurants = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Restaurant));
+      
+      const merged = [...firestoreRestaurants];
+      MOCK_RESTAURANTS.forEach(mock => {
+        if (!merged.find(r => r.id === mock.id)) {
+          merged.push(mock);
+        }
+      });
+      
+      setRestaurants(merged);
+      setLoading(false);
+    }, (error) => {
+      console.error('Error fetching restaurants for search:', error);
+      setRestaurants(MOCK_RESTAURANTS);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const fetchRecentReviews = async () => {
       const reviews: Record<string, any> = {};
-      for (const restaurant of MOCK_RESTAURANTS) {
+      for (const restaurant of restaurants) {
         try {
           const q = query(
             collection(db, 'comments'),
-            where('restaurantId', '==', restaurant.id),
-            orderBy('createdAt', 'desc'),
-            limit(1)
+            where('restaurantId', '==', restaurant.id)
           );
           const snapshot = await getDocs(q);
           if (!snapshot.empty) {
-            reviews[restaurant.id] = snapshot.docs[0].data();
+            const docs = snapshot.docs.map(d => d.data());
+            docs.sort((a: any, b: any) => {
+              const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+              const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+              return timeB - timeA;
+            });
+            reviews[restaurant.id] = docs[0];
           }
         } catch (error) {
           console.error(`Error fetching review for ${restaurant.id}:`, error);
@@ -38,27 +71,29 @@ export function Search({ onSelectRestaurant, favorites, toggleFavorite }: Search
       setRecentReviews(reviews);
     };
 
-    fetchRecentReviews();
-  }, []);
+    if (restaurants.length > 0) {
+      fetchRecentReviews();
+    }
+  }, [restaurants]);
 
   const topRatedRestaurants = useMemo(() => {
-    return [...MOCK_RESTAURANTS].sort((a, b) => b.rating - a.rating).slice(0, 5);
-  }, []);
+    return [...restaurants].sort((a, b) => b.rating - a.rating).slice(0, 5);
+  }, [restaurants]);
 
   const mostlyOrderedRestaurants = useMemo(() => {
-    return [...MOCK_RESTAURANTS].sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 5);
-  }, []);
+    return [...restaurants].sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 5);
+  }, [restaurants]);
 
   const filteredRestaurants = useMemo(() => {
     if (!searchQuery.trim()) return [];
     
     const query = searchQuery.toLowerCase();
-    return MOCK_RESTAURANTS.filter(r => 
+    return restaurants.filter(r => 
       r.name.toLowerCase().includes(query) || 
       r.categories.some(c => c.toLowerCase().includes(query)) ||
-      r.menu.some(m => m.name.toLowerCase().includes(query))
+      (r.menu && r.menu.some(m => m.name.toLowerCase().includes(query)))
     );
-  }, [searchQuery]);
+  }, [searchQuery, restaurants]);
 
   return (
     <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8 relative min-h-screen">
@@ -253,7 +288,7 @@ export function Search({ onSelectRestaurant, favorites, toggleFavorite }: Search
                 All Restaurants
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {MOCK_RESTAURANTS.map((restaurant, index) => (
+                {restaurants.map((restaurant, index) => (
                   <motion.div
                     key={restaurant.id}
                     initial={{ opacity: 0, scale: 0.9 }}

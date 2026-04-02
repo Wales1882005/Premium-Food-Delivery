@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Star, Gift, ChevronRight, Settings, LogOut, Heart, LogIn, ArrowLeft, Clock, Bell, CreditCard, Shield, X, Receipt, Database, Code, ExternalLink, Mail, Lock, UserPlus, Plus, AlertTriangle, Store, Utensils, Sparkles, Image as ImageIcon, MapPin, Edit2, Check, Navigation, Loader2, Camera, Save, Languages } from 'lucide-react';
+import { User, Star, Gift, ChevronRight, Settings, LogOut, Heart, LogIn, ArrowLeft, Clock, Bell, CreditCard, Shield, X, Receipt, Database, Code, ExternalLink, Mail, Lock, UserPlus, Plus, AlertTriangle, Store, Utensils, Sparkles, Image as ImageIcon, MapPin, Edit2, Check, Navigation, Loader2, Camera, Save, Languages, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { Restaurant, Promotion } from '../types';
@@ -12,7 +12,6 @@ import { User as SupabaseUser } from '@supabase/supabase-js';
 import { User as FirebaseUser } from 'firebase/auth';
 import { RestaurantMenuView } from './RestaurantMenuView';
 import { RestaurantStats } from './RestaurantStats';
-import { DriverDashboard } from './DriverDashboard';
 
 interface ProfileProps {
   favorites: string[];
@@ -20,6 +19,7 @@ interface ProfileProps {
   onSelectRestaurant: (restaurant: Restaurant) => void;
   onOpenSuggestion?: () => void;
   onOpenRestaurantOnboarding?: () => void;
+  onReorder: (items: any[], restaurant: Restaurant) => void;
 }
 
 interface PaymentMethod {
@@ -74,7 +74,7 @@ function AuthView() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'customer' | 'restaurant' | 'driver'>('customer');
+  const [selectedRole, setSelectedRole] = useState<'customer' | 'restaurant'>('customer');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
@@ -223,11 +223,10 @@ function AuthView() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-bold text-white/60">I am a...</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {[
                   { id: 'customer', label: 'Customer', icon: User },
-                  { id: 'restaurant', label: 'Owner', icon: Store },
-                  { id: 'driver', label: 'Driver', icon: Navigation }
+                  { id: 'restaurant', label: 'Owner', icon: Store }
                 ].map((role) => (
                   <button
                     key={role.id}
@@ -297,6 +296,7 @@ const RestaurantDashboardView = ({
   const [promoDesc, setPromoDesc] = useState('');
   const [promoValue, setPromoValue] = useState('');
   const [isCreatingPromo, setIsCreatingPromo] = useState(false);
+  const [restaurantToDelete, setRestaurantToDelete] = useState<string | null>(null);
 
   const handleCreatePromo = async (restaurantId: string) => {
     if (!promoCode || !promoDesc) {
@@ -350,6 +350,23 @@ const RestaurantDashboardView = ({
     setActiveRestaurantTab(prev => ({ ...prev, [restaurantId]: tab }));
   };
 
+  const handleDeleteRestaurant = async (restaurantId: string) => {
+    try {
+      if (authType === 'firebase') {
+        const { deleteDoc } = await import('firebase/firestore');
+        await deleteDoc(doc(db, 'restaurants', restaurantId));
+      } else if (authType === 'supabase') {
+        const { error } = await supabase.from('restaurants').delete().eq('id', restaurantId);
+        if (error) throw error;
+      }
+      toast.success('Restaurant deleted successfully');
+      setRestaurantToDelete(null);
+    } catch (error) {
+      console.error('Error deleting restaurant:', error);
+      toast.error('Failed to delete restaurant');
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     const userId = authType === 'firebase' ? (user as FirebaseUser).uid : (user as SupabaseUser).id;
@@ -367,8 +384,11 @@ const RestaurantDashboardView = ({
       setMyRestaurants(restaurants);
       setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'restaurants');
+      console.error("Error fetching restaurants:", error);
       setLoading(false);
+      try {
+        handleFirestoreError(error, OperationType.GET, 'restaurants');
+      } catch (e) {}
     });
 
     return () => unsubscribe();
@@ -443,7 +463,43 @@ const RestaurantDashboardView = ({
         >
           <ArrowLeft size={24} />
         </button>
-        <h2 className="text-2xl font-bold">Restaurant Dashboard</h2>
+        <h2 className="text-2xl font-bold">Restaurant Management</h2>
+      </div>
+
+      {/* Action Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <motion.button
+          whileHover={{ scale: 1.02, translateY: -4 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => onOpenRestaurantOnboarding?.()}
+          className="p-6 bg-gradient-to-br from-primary/20 to-surface rounded-3xl border border-primary/30 text-left group relative overflow-hidden"
+        >
+          <div className="absolute -right-6 -top-6 w-24 h-24 bg-primary/10 rounded-full blur-2xl group-hover:bg-primary/20 transition-colors" />
+          <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg shadow-primary/20">
+            <Plus size={24} />
+          </div>
+          <h3 className="text-xl font-bold mb-1">Register New Shop</h3>
+          <p className="text-sm text-white/50">Expand your business and reach more customers</p>
+        </motion.button>
+
+        <div className="p-6 bg-surface rounded-3xl border border-white/5 flex flex-col justify-center">
+          <div className="flex items-center gap-4 mb-2">
+            <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500">
+              <Store size={20} />
+            </div>
+            <div>
+              <p className="text-xs text-white/40 uppercase font-black tracking-widest">Active Shops</p>
+              <p className="text-2xl font-black">{myRestaurants.length}</p>
+            </div>
+          </div>
+          <p className="text-xs text-white/40">Manage your existing restaurant profiles and menus below</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-6">
+        <div className="h-px flex-1 bg-white/5" />
+        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20">Your Restaurants</span>
+        <div className="h-px flex-1 bg-white/5" />
       </div>
 
       {loading ? (
@@ -452,20 +508,11 @@ const RestaurantDashboardView = ({
         </div>
       ) : myRestaurants.length === 0 ? (
         <div className="bg-surface rounded-3xl p-12 text-center border border-white/5">
-          <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Store className="text-white/20" size={40} />
+          <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Store className="text-white/10" size={32} />
           </div>
-          <h3 className="text-xl font-bold mb-2">No Restaurants Found</h3>
-          <p className="text-white/60 mb-8">You haven't registered any restaurants yet.</p>
-          <button 
-            onClick={() => {
-              setActiveSection('main');
-              onOpenRestaurantOnboarding?.();
-            }}
-            className="px-8 py-4 bg-primary rounded-2xl font-bold hover:scale-105 transition-all"
-          >
-            Register Now
-          </button>
+          <h3 className="text-lg font-bold mb-1">No Active Shops</h3>
+          <p className="text-sm text-white/40">Use the card above to register your first restaurant!</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -498,6 +545,13 @@ const RestaurantDashboardView = ({
                       disabled={uploadingId === restaurant.id}
                     />
                   </label>
+                  <button 
+                    onClick={() => setRestaurantToDelete(restaurant.id)}
+                    className="p-2 bg-red-500/80 hover:bg-red-600 backdrop-blur-md rounded-xl text-white transition-colors"
+                    title="Delete Restaurant"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
 
                 <div className="absolute bottom-6 left-6">
@@ -786,24 +840,34 @@ const RestaurantDashboardView = ({
                   </div>
                 </div>
 
+                <div className="space-y-1">
+                  <label className="text-xs font-black uppercase tracking-widest text-white/40">Description</label>
+                  <textarea 
+                    value={editingRestaurant.description || ''}
+                    onChange={e => setEditingRestaurant({...editingRestaurant, description: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary h-24 resize-none"
+                    placeholder="Tell us about your restaurant..."
+                  />
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-xs font-black uppercase tracking-widest text-white/40">Latitude</label>
+                    <label className="text-xs font-black uppercase tracking-widest text-white/40">Delivery Time</label>
                     <input 
-                      type="number"
-                      step="any"
-                      value={editingRestaurant.lat}
-                      onChange={e => setEditingRestaurant({...editingRestaurant, lat: parseFloat(e.target.value) || 0})}
+                      type="text"
+                      value={editingRestaurant.deliveryTime}
+                      onChange={e => setEditingRestaurant({...editingRestaurant, deliveryTime: e.target.value})}
+                      placeholder="e.g. 20-30 min"
                       className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-black uppercase tracking-widest text-white/40">Longitude</label>
+                    <label className="text-xs font-black uppercase tracking-widest text-white/40">Delivery Fee</label>
                     <input 
                       type="number"
-                      step="any"
-                      value={editingRestaurant.lng}
-                      onChange={e => setEditingRestaurant({...editingRestaurant, lng: parseFloat(e.target.value) || 0})}
+                      step="0.01"
+                      value={editingRestaurant.deliveryFee}
+                      onChange={e => setEditingRestaurant({...editingRestaurant, deliveryFee: parseFloat(e.target.value) || 0})}
                       className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
@@ -834,10 +898,14 @@ const RestaurantDashboardView = ({
                     try {
                       await updateDoc(doc(db, 'restaurants', editingRestaurant.id), {
                         name: editingRestaurant.name,
+                        description: editingRestaurant.description || '',
                         address: editingRestaurant.address,
-                        lat: editingRestaurant.lat,
-                        lng: editingRestaurant.lng,
-                        currencySymbol: editingRestaurant.currencySymbol || '$'
+                        lat: 0,
+                        lng: 0,
+                        deliveryTime: editingRestaurant.deliveryTime,
+                        deliveryFee: editingRestaurant.deliveryFee,
+                        currencySymbol: editingRestaurant.currencySymbol || '$',
+                        isActive: editingRestaurant.isActive ?? true
                       });
                       toast.success('Restaurant details updated!');
                       setEditingRestaurant(null);
@@ -894,8 +962,7 @@ const RestaurantOrdersView = ({ selectedRestaurantForOrders, setActiveSection }:
     if (authType === 'firebase') {
       const q = query(
         collection(db, 'orders'),
-        where('restaurantOwnerId', '==', (user as FirebaseUser).uid),
-        orderBy('createdAt', 'desc')
+        where('restaurantOwnerId', '==', (user as FirebaseUser).uid)
       );
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -903,11 +970,22 @@ const RestaurantOrdersView = ({ selectedRestaurantForOrders, setActiveSection }:
           id: doc.id,
           ...doc.data()
         })).filter((o: any) => o.restaurantId === selectedRestaurantForOrders.id);
+        
+        // Sort client-side
+        orders.sort((a: any, b: any) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+          return timeB - timeA;
+        });
+        
         setRestaurantOrders(orders);
         setLoading(false);
       }, (error) => {
-        handleFirestoreError(error, OperationType.GET, 'orders');
+        console.error("Error fetching restaurant orders:", error);
         setLoading(false);
+        try {
+          handleFirestoreError(error, OperationType.GET, 'orders');
+        } catch (e) {}
       });
 
       return () => unsubscribe();
@@ -1082,7 +1160,7 @@ const RestaurantOrdersView = ({ selectedRestaurantForOrders, setActiveSection }:
                     Ready for Collection
                   </button>
                 )}
-                {order.status === 'driver_arrived_at_restaurant' && (
+                {order.status === 'ready_for_pickup' && (
                   <button 
                     onClick={() => updateOrderStatus(order.id, 'picked_up')}
                     className="flex-1 py-3 bg-purple-500 rounded-xl font-bold text-sm hover:scale-105 transition-all"
@@ -1090,16 +1168,54 @@ const RestaurantOrdersView = ({ selectedRestaurantForOrders, setActiveSection }:
                     Handover to Rider
                   </button>
                 )}
-                {order.status === 'ready_for_pickup' && (
-                  <div className="flex-1 py-3 bg-white/5 rounded-xl font-bold text-sm text-center text-white/40 border border-white/5">
-                    Waiting for Driver...
-                  </div>
-                )}
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {restaurantToDelete && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-surface p-6 rounded-3xl border border-white/10 max-w-sm w-full space-y-6"
+            >
+              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto text-red-500">
+                <AlertTriangle size={32} />
+              </div>
+              <div className="text-center space-y-2">
+                <h3 className="text-xl font-bold">Delete Restaurant?</h3>
+                <p className="text-white/60 text-sm">
+                  Are you sure you want to delete this restaurant? This action cannot be undone and all associated data will be lost.
+                </p>
+              </div>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setRestaurantToDelete(null)}
+                  className="flex-1 py-3 rounded-xl font-bold bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => handleDeleteRestaurant(restaurantToDelete)}
+                  className="flex-1 py-3 rounded-xl font-bold bg-red-500 hover:bg-red-600 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };
@@ -1113,14 +1229,12 @@ const translations = {
     cravePoints: 'Crave Points',
     communitySuggestions: 'Community Suggestions',
     restaurantDashboard: 'Restaurant Dashboard',
-    registerRestaurant: 'Register as a Restaurant',
-    driverDashboard: 'Driver Dashboard',
+    registerRestaurant: 'Restaurant Management',
     earnWithCrave: 'Earn with Crave',
-    becomeDriver: 'Become a Driver',
     settings: 'Settings',
     logout: 'Log Out',
     deliverJoy: 'Deliver joy and earn on your schedule',
-    earnPoints: 'Earn 500 Crave Points on signup!',
+    earnPoints: 'Register or manage your shops',
     manageMenu: 'Manage your menu and orders',
     manageDeliveries: 'Manage your deliveries and earnings',
     viewHistory: 'View your order history',
@@ -1148,14 +1262,12 @@ const translations = {
     cravePoints: 'Mata Crave',
     communitySuggestions: 'Cadangan Komuniti',
     restaurantDashboard: 'Papan Pemuka Restoran',
-    registerRestaurant: 'Daftar sebagai Restoran',
-    driverDashboard: 'Papan Pemuka Pemandu',
+    registerRestaurant: 'Pengurusan Restoran',
     earnWithCrave: 'Jana Pendapatan dengan Crave',
-    becomeDriver: 'Jadi Pemandu',
     settings: 'Tetapan',
     logout: 'Log Keluar',
     deliverJoy: 'Hantar kegembiraan dan jana pendapatan mengikut jadual anda',
-    earnPoints: 'Dapatkan 500 Mata Crave semasa mendaftar!',
+    earnPoints: 'Daftar atau urus kedai anda',
     manageMenu: 'Urus menu dan pesanan anda',
     manageDeliveries: 'Urus penghantaran dan pendapatan anda',
     viewHistory: 'Lihat sejarah pesanan anda',
@@ -1183,14 +1295,12 @@ const translations = {
     cravePoints: 'Crave 积分',
     communitySuggestions: '社区建议',
     restaurantDashboard: '餐厅仪表板',
-    registerRestaurant: '注册成为餐厅',
-    driverDashboard: '司机仪表板',
+    registerRestaurant: '餐厅管理',
     earnWithCrave: '通过 Crave 赚钱',
-    becomeDriver: '成为司机',
     settings: '设置',
     logout: '登出',
     deliverJoy: '传递快乐并按您的时间表赚钱',
-    earnPoints: '注册即赚取 500 Crave 积分！',
+    earnPoints: '注册或管理您的店铺',
     manageMenu: '管理您的菜单和订单',
     manageDeliveries: '管理您的送货和收入',
     viewHistory: '查看您的订单历史记录',
@@ -1212,12 +1322,10 @@ const translations = {
   }
 };
 
-function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenSuggestion, onOpenRestaurantOnboarding }: ProfileProps) {
+function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenSuggestion, onOpenRestaurantOnboarding, onReorder }: ProfileProps) {
   const { user, authType, role, cravePoints, logout, deleteAccount, updateProfileName, setRole } = useAuth();
-  const [activeSection, setActiveSection] = useState<'main' | 'saved' | 'promos' | 'settings' | 'payments' | 'privacy' | 'orders' | 'supabase' | 'suggestions' | 'restaurant_dashboard' | 'restaurant_orders' | 'restaurant_menu' | 'driver_dashboard'>('main');
+  const [activeSection, setActiveSection] = useState<'main' | 'saved' | 'promos' | 'settings' | 'payments' | 'privacy' | 'orders' | 'supabase' | 'suggestions' | 'restaurant_dashboard' | 'restaurant_orders' | 'restaurant_menu'>('main');
   
-  // Return null if user is not available (e.g. during logout animation)
-  if (!user) return null;
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
@@ -1238,6 +1346,8 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
   });
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [myRestaurants, setMyRestaurants] = useState<Restaurant[]>([]);
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [language, setLanguage] = useState(() => {
@@ -1341,8 +1451,7 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
     if (authType === 'firebase') {
       const q = query(
         collection(db, 'orders'),
-        where('userId', '==', (user as FirebaseUser).uid),
-        orderBy('createdAt', 'desc')
+        where('userId', '==', (user as FirebaseUser).uid)
       );
 
       unsubscribeFirebase = onSnapshot(q, (snapshot) => {
@@ -1350,11 +1459,22 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
           id: doc.id,
           ...doc.data()
         }));
+        
+        // Sort client-side
+        fetchedOrders.sort((a: any, b: any) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+          return timeB - timeA;
+        });
+        
         setOrders(fetchedOrders);
         setLoadingOrders(false);
       }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, `users/${(user as FirebaseUser).uid}/orders`);
+        console.error("Error fetching user orders:", error);
         setLoadingOrders(false);
+        try {
+          handleFirestoreError(error, OperationType.LIST, `users/${(user as FirebaseUser).uid}/orders`);
+        } catch (e) {}
       });
 
       // Fetch suggestions
@@ -1371,9 +1491,39 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
         setSuggestions(fetchedSuggestions);
         setLoadingSuggestions(false);
       }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'suggestions');
+        console.error("Error fetching suggestions:", error);
         setLoadingSuggestions(false);
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'suggestions');
+        } catch (e) {}
       });
+
+      // Fetch user's restaurants
+      const restaurantsQuery = query(
+        collection(db, 'restaurants'),
+        where('ownerId', '==', (user as FirebaseUser).uid)
+      );
+
+      const unsubscribeRestaurants = onSnapshot(restaurantsQuery, (snapshot) => {
+        const fetchedRestaurants = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Restaurant));
+        setMyRestaurants(fetchedRestaurants);
+        setLoadingRestaurants(false);
+      }, (error) => {
+        console.error("Error fetching user restaurants:", error);
+        setLoadingRestaurants(false);
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'restaurants');
+        } catch (e) {}
+      });
+
+      return () => {
+        if (unsubscribeFirebase) unsubscribeFirebase();
+        if (unsubscribeSuggestions) unsubscribeSuggestions();
+        if (unsubscribeRestaurants) unsubscribeRestaurants();
+      };
     } else if (authType === 'supabase') {
       const fetchSupabaseOrders = async () => {
         const { data, error } = await supabase
@@ -1416,6 +1566,7 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
     };
   }, [user, authType]);
 
+  // Return null if user is not available (e.g. during logout animation)
   if (!user) return null;
 
   const renderOrderHistory = () => (
@@ -1460,9 +1611,29 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
                   </p>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-xl font-black text-primary">${order.total?.toFixed(2)}</p>
-                <p className="text-xs text-white/40 uppercase tracking-wider font-bold">{order.status?.replace('_', ' ')}</p>
+              <div className="text-right flex flex-col items-end gap-2">
+                <div>
+                  <p className="text-xl font-black text-primary">${order.total?.toFixed(2)}</p>
+                  <p className="text-xs text-white/40 uppercase tracking-wider font-bold">{order.status?.replace('_', ' ')}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    try {
+                      const items = JSON.parse(order.items);
+                      const restaurant = MOCK_RESTAURANTS.find(r => r.id === order.restaurantId);
+                      if (restaurant) {
+                        onReorder(items, restaurant);
+                      } else {
+                        toast.error('Restaurant no longer available for reorder');
+                      }
+                    } catch (e) {
+                      toast.error('Failed to parse order items');
+                    }
+                  }}
+                  className="px-4 py-2 bg-primary/10 text-primary rounded-xl text-xs font-bold hover:bg-primary hover:text-white transition-all"
+                >
+                  Reorder
+                </button>
               </div>
             </div>
           ))}
@@ -1948,7 +2119,6 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
   email text,
   avatar_url text,
   crave_points integer default 0,
-  driver_earnings decimal default 0,
   role text default 'customer',
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );`);
@@ -1966,7 +2136,6 @@ function ProfileContent({ favorites, toggleFavorite, onSelectRestaurant, onOpenS
   email text,
   avatar_url text,
   crave_points integer default 0,
-  driver_earnings decimal default 0,
   role text default 'customer',
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );`}
@@ -2224,11 +2393,6 @@ create policy "Users can update their own restaurants"
         {activeSection === 'privacy' && <div key="privacy">{renderPrivacy()}</div>}
         {activeSection === 'suggestions' && <div key="suggestions">{renderSuggestions()}</div>}
         {activeSection === 'supabase' && <div key="supabase">{renderSupabaseGuide()}</div>}
-        {activeSection === 'driver_dashboard' && (
-          <div key="driver_dashboard">
-            <DriverDashboard onBack={() => setActiveSection('main')} />
-          </div>
-        )}
         {activeSection === 'restaurant_dashboard' && (
           <div key="restaurant_dashboard">
             <RestaurantDashboardView 
@@ -2466,83 +2630,25 @@ create policy "Users can update their own restaurants"
               </button>
 
               {/* Restaurant Section */}
-              {role === 'restaurant' ? (
-                <button 
-                  onClick={() => setActiveSection('restaurant_dashboard')}
-                  className="w-full flex items-center justify-between p-6 hover:bg-white/5 transition-colors border-b border-white/5 group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-all">
-                      <Utensils size={20} />
-                    </div>
-                    <div className="text-left">
-                      <span className="font-medium text-lg block">{t.restaurantDashboard}</span>
-                      <span className="text-xs text-white/40">{t.manageMenu}</span>
-                    </div>
+              <button 
+                onClick={() => setActiveSection('restaurant_dashboard')}
+                className="w-full flex items-center justify-between p-6 hover:bg-white/5 transition-colors border-b border-white/5 group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-xl transition-all ${
+                    (role === 'restaurant' || myRestaurants.length > 0) 
+                      ? 'bg-emerald-500/10 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white' 
+                      : 'bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white'
+                  }`}>
+                    <Store size={20} />
                   </div>
-                  <ChevronRight className="text-white/40" />
-                </button>
-              ) : (
-                <button 
-                  onClick={onOpenRestaurantOnboarding}
-                  className="w-full flex items-center justify-between p-6 hover:bg-white/5 transition-colors border-b border-white/5 group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-primary/10 rounded-xl text-primary group-hover:bg-primary group-hover:text-white transition-all">
-                      <Store size={20} />
-                    </div>
-                    <div className="text-left">
-                      <span className="font-medium text-lg block">{t.registerRestaurant}</span>
-                      <span className="text-xs text-white/40">{t.earnPoints}</span>
-                    </div>
+                  <div className="text-left">
+                    <span className="font-medium text-lg block">{t.registerRestaurant}</span>
+                    <span className="text-xs text-white/40">{t.earnPoints}</span>
                   </div>
-                  <ChevronRight className="text-white/40" />
-                </button>
-              )}
-
-              {/* Driver Section */}
-              {role === 'driver' ? (
-                <button 
-                  onClick={() => setActiveSection('driver_dashboard')}
-                  className="w-full flex items-center justify-between p-6 hover:bg-white/5 transition-colors border-b border-white/5 group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-all">
-                      <Navigation size={20} />
-                    </div>
-                    <div className="text-left">
-                      <span className="font-medium text-lg block">{t.driverDashboard}</span>
-                      <span className="text-xs text-white/40">{t.manageDeliveries}</span>
-                    </div>
-                  </div>
-                  <ChevronRight className="text-white/40" />
-                </button>
-              ) : (
-                <div className="p-6 bg-emerald-500/10 border-b border-white/5">
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="p-3 bg-emerald-500 rounded-xl text-white">
-                      <Navigation size={20} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-emerald-400">{t.earnWithCrave}</h4>
-                      <p className="text-xs text-white/60">{t.deliverJoy}</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={async () => {
-                      try {
-                        await setRole('driver');
-                        toast.success('You are now a driver!');
-                      } catch (error) {
-                        toast.error('Failed to become a driver. Please try again.');
-                      }
-                    }}
-                    className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20"
-                  >
-                    {t.becomeDriver}
-                  </button>
                 </div>
-              )}
+                <ChevronRight className="text-white/40" />
+              </button>
 
               <button 
                 onClick={() => setActiveSection('settings')}

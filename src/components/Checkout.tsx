@@ -124,139 +124,147 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
       userId: authType === 'firebase' ? (user as FirebaseUser)?.uid : (user as SupabaseUser)?.id 
     });
     
-    // Create a promise that rejects after 30 seconds
+    // Create a promise that rejects after 5 seconds
     const timeout = (ms: number, dbName: string) => new Promise((_, reject) => 
       setTimeout(() => reject(new Error(`Request to ${dbName} timed out after ${ms/1000}s`)), ms)
     );
 
-    try {
-      if (authType === 'firebase') {
-        const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const orderRef = doc(db, 'orders', orderId);
-        
-        console.log('Inserting into Firebase...', { orderId });
-        await Promise.race([
-          setDoc(orderRef, {
-            id: orderId,
-            userId: (user as FirebaseUser).uid,
-            restaurantId: restaurant.id,
-            restaurantOwnerId: restaurant.ownerId || null,
-            restaurantName: restaurant.name,
-            items: JSON.stringify(cart),
-            total: finalTotal,
-            subtotal: subtotal,
-            deliveryFee: deliveryFee,
-            serviceFee: serviceFee,
-            paymentMethod: paymentMethod,
-            discountApplied: discount,
-            pointsRedeemed: pointsToRedeem,
-            status: 'pending',
-            deliveryAddress: address,
-            deliveryLat: 37.7749 + (pinY.get() * 0.0001),
-            deliveryLng: -122.4194 + (pinX.get() * 0.0001),
-            restaurantLat: restaurant.lat || 37.7749,
-            restaurantLng: restaurant.lng || -122.4194,
-            driverId: null,
-            createdAt: serverTimestamp()
-          }),
-          timeout(30000, 'Firebase')
-        ]);
-        console.log('Firebase insert successful');
-      } else if (authType === 'supabase') {
-        console.log('Testing Supabase connection before insert...');
-        try {
-          const { error: testError } = await supabase.from('orders').select('id').limit(1);
-          if (testError) {
-            console.error('Supabase connection test failed:', testError);
-            if (testError.code === 'PGRST116' || testError.message.includes('relation "orders" does not exist')) {
-              toast.error('Database table "orders" is missing. Please run the SQL setup script.');
-              throw new Error('Table "orders" does not exist');
-            }
-          } else {
-            console.log('Supabase connection test successful');
-          }
-        } catch (testErr) {
-          console.error('Supabase connection test caught error:', testErr);
-        }
-
-        console.log('Inserting into Supabase...', {
-          userId: (user as SupabaseUser).id,
-          restaurantId: restaurant.id,
-          finalTotal
-        });
-        
-        const supabaseInsert = async () => {
+    const placeOrderInDatabase = async () => {
+      try {
+        if (authType === 'firebase') {
+          const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const orderRef = doc(db, 'orders', orderId);
+          
+          console.log('Inserting into Firebase...', { orderId });
+          await Promise.race([
+            setDoc(orderRef, {
+              id: orderId,
+              userId: (user as FirebaseUser).uid,
+              restaurantId: restaurant.id,
+              restaurantOwnerId: restaurant.ownerId || null,
+              restaurantName: restaurant.name,
+              items: JSON.stringify(cart),
+              total: finalTotal,
+              subtotal: subtotal,
+              deliveryFee: deliveryFee,
+              serviceFee: serviceFee,
+              paymentMethod: paymentMethod,
+              discountApplied: discount,
+              pointsRedeemed: pointsToRedeem,
+              status: 'pending',
+              deliveryAddress: address,
+              deliveryLat: 37.7749 + (pinY.get() * 0.0001),
+              deliveryLng: -122.4194 + (pinX.get() * 0.0001),
+              restaurantLat: restaurant.lat || 37.7749,
+              restaurantLng: restaurant.lng || -122.4194,
+              createdAt: serverTimestamp()
+            }),
+            timeout(5000, 'Firebase')
+          ]);
+          console.log('Firebase insert successful');
+        } else if (authType === 'supabase') {
+          console.log('Testing Supabase connection before insert...');
           try {
-            const { data, error, status, statusText } = await supabase
-              .from('orders')
-              .insert({
-                user_id: (user as SupabaseUser).id,
-                restaurant_id: restaurant.id,
-                restaurant_name: restaurant.name,
-                restaurant_owner_id: restaurant.ownerId,
-                items: JSON.stringify(cart),
-                total: finalTotal,
-                subtotal: subtotal,
-                delivery_fee: deliveryFee,
-                service_fee: serviceFee,
-                payment_method: paymentMethod,
-                status: 'pending',
-                delivery_address: address,
-                delivery_lat: 37.7749 + (pinY.get() * 0.0001),
-                delivery_lng: -122.4194 + (pinX.get() * 0.0001),
-                restaurant_lat: restaurant.lat || 37.7749,
-                restaurant_lng: restaurant.lng || -122.4194,
-              })
-              .select();
-            
-            if (error) {
-              console.error('Supabase insert error details:', {
-                error,
-                status,
-                statusText
-              });
-              throw error;
+            const { error: testError } = await supabase.from('orders').select('id').limit(1);
+            if (testError) {
+              console.error('Supabase connection test failed:', testError);
+              if (testError.code === 'PGRST116' || testError.message.includes('relation "orders" does not exist')) {
+                toast.error('Database table "orders" is missing. Please run the SQL setup script.');
+                throw new Error('Table "orders" does not exist');
+              }
+            } else {
+              console.log('Supabase connection test successful');
             }
-            console.log('Supabase insert successful, returned data:', data);
-          } catch (err) {
-            console.error('Supabase insert caught error:', err);
-            throw err;
+          } catch (testErr) {
+            console.error('Supabase connection test caught error:', testErr);
           }
-        };
 
-        // Increase timeout to 60s for debugging
-        await Promise.race([supabaseInsert(), timeout(60000, 'Supabase')]);
-        console.log('Supabase insert successful');
-      }
-      
-      // Subtract redeemed points and add new points (10% of final total)
-      const pointsEarned = Math.floor(finalTotal * 10);
-      console.log('Updating points...', { pointsEarned, pointsToRedeem });
-      
-      // In demo mode, we can move to the next step immediately and update points in the background
-      if (isDemo) {
-        updateCravePoints(pointsEarned - pointsToRedeem).catch(pError => {
-          console.error('Background points update failed:', pError);
-        });
-        setStep(3);
-      } else {
+          console.log('Inserting into Supabase...', {
+            userId: (user as SupabaseUser).id,
+            restaurantId: restaurant.id,
+            finalTotal
+          });
+          
+          const supabaseInsert = async () => {
+            try {
+              const { data, error, status, statusText } = await supabase
+                .from('orders')
+                .insert({
+                  user_id: (user as SupabaseUser).id,
+                  restaurant_id: restaurant.id,
+                  restaurant_name: restaurant.name,
+                  restaurant_owner_id: restaurant.ownerId,
+                  items: JSON.stringify(cart),
+                  total: finalTotal,
+                  subtotal: subtotal,
+                  delivery_fee: deliveryFee,
+                  service_fee: serviceFee,
+                  payment_method: paymentMethod,
+                  status: 'pending',
+                  delivery_address: address,
+                  delivery_lat: 37.7749 + (pinY.get() * 0.0001),
+                  delivery_lng: -122.4194 + (pinX.get() * 0.0001),
+                  restaurant_lat: restaurant.lat || 37.7749,
+                  restaurant_lng: restaurant.lng || -122.4194,
+                })
+                .select();
+              
+              if (error) {
+                console.error('Supabase insert error details:', {
+                  error,
+                  status,
+                  statusText
+                });
+                throw error;
+              }
+              console.log('Supabase insert successful, returned data:', data);
+            } catch (err) {
+              console.error('Supabase insert caught error:', err);
+              throw err;
+            }
+          };
+
+          await Promise.race([supabaseInsert(), timeout(5000, 'Supabase')]);
+          console.log('Supabase insert successful');
+        }
+        
+        // Subtract redeemed points and add new points (10% of final total)
+        const pointsEarned = Math.floor(finalTotal * 10);
+        console.log('Updating points...', { pointsEarned, pointsToRedeem });
+        
         try {
           await updateCravePoints(pointsEarned - pointsToRedeem);
           console.log('Points updated successfully');
         } catch (pError) {
           console.error('Failed to update points, but continuing...', pError);
         }
-        setStep(3);
+      } catch (error) {
+        console.error('Order placement failed:', error);
+        if (!isDemo) {
+          if (authType === 'firebase') {
+            handleFirestoreError(error, OperationType.CREATE, `orders`);
+          } else {
+            toast.error('Failed to place order. Please try again.');
+          }
+        }
+        throw error;
       }
-    } catch (error) {
-      console.error('Order placement failed:', error);
-      if (authType === 'firebase') {
-        handleFirestoreError(error, OperationType.CREATE, `orders`);
-      } else {
-        toast.error('Failed to place order. Please try again.');
-      }
-    } finally {
+    };
+
+    if (isDemo || paymentMethod === 'cod') {
+      // In demo mode or COD, proceed immediately and do database work in background
+      placeOrderInDatabase().catch(console.error);
+      setStep(3);
       setIsPlacingOrder(false);
+    } else {
+      try {
+        await placeOrderInDatabase();
+        setStep(3);
+      } catch (error) {
+        // Error already handled in placeOrderInDatabase
+      } finally {
+        setIsPlacingOrder(false);
+      }
     }
   };
 

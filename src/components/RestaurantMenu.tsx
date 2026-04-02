@@ -54,7 +54,10 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setCommentsCount(snapshot.size);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'comments');
+      console.error("Error fetching comments count:", error);
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'comments');
+      } catch (e) {}
     });
 
     return () => unsubscribe();

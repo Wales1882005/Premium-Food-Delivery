@@ -40,6 +40,28 @@
           "type": "string",
           "enum": ["customer", "restaurant", "driver", "admin"],
           "description": "The user's role in the platform."
+        },
+        "paymentMethods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string" },
+              "last4": { "type": "string" },
+              "expiry": { "type": "string" },
+              "isDefault": { "type": "boolean" }
+            }
+          }
+        },
+        "privacySettings": {
+          "type": "object",
+          "properties": {
+            "locationAccess": { "type": "boolean" },
+            "dataSharing": { "type": "boolean" },
+            "personalizedAds": { "type": "boolean" },
+            "twoFactor": { "type": "boolean" }
+          }
         }
       },
       "required": ["uid", "email", "cravePoints", "createdAt", "role"]

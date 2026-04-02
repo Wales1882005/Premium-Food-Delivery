@@ -3,19 +3,20 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, where, limit } from 'firebase/firestore';
 import { supabase } from '../lib/supabase';
 import { User as FirebaseUser } from 'firebase/auth';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import { ChatModal } from './ChatModal';
 import { toast } from 'sonner';
 
-interface OrderItem {
+export interface OrderItem {
   name: string;
   price: number;
   quantity: number;
 }
 
-interface OrderData {
+export interface OrderData {
   id: string;
   restaurantName: string;
   restaurantId?: string;
@@ -25,14 +26,12 @@ interface OrderData {
   items: string; // JSON string of OrderItem[]
   userId?: string;
   deliveryAddress?: string;
-  driverLat?: number;
-  driverLng?: number;
   estimatedDeliveryTime?: any;
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
-  sender: 'user' | 'driver';
+  sender: 'user' | 'restaurant';
   text: string;
   createdAt: any;
 }
@@ -98,7 +97,6 @@ export function Orders() {
         total: order.total,
         status: 'confirmed',
         items: order.items,
-        driverId: null,
         createdAt: serverTimestamp()
       };
 
@@ -172,11 +170,11 @@ export function Orders() {
           createdAt: serverTimestamp()
         });
 
-        // Mock driver response after a delay
+        // Mock restaurant response after a delay
         setTimeout(async () => {
           await addDoc(collection(db, 'orders', activeOrder.id, 'messages'), {
-            sender: 'driver',
-            text: 'Got it! I will be there as soon as possible.',
+            sender: 'restaurant',
+            text: 'Got it! We are preparing your order.',
             createdAt: serverTimestamp()
           });
         }, 2000);
@@ -190,32 +188,27 @@ export function Orders() {
     }
   };
 
-  const simulateDriverMovement = async () => {
+  const simulateOrderProgress = async () => {
     if (!user || !activeOrder || authType !== 'firebase') return;
     setIsSimulating(true);
-    toast.info('Starting real-time driver simulation...');
+    toast.info('Starting real-time order simulation...');
 
     const orderRef = doc(db, 'orders', activeOrder.id);
     
-    // Path coordinates (simulated)
-    const points = [
-      { lat: 40, lng: 390, status: 'preparing' },
-      { lat: 40, lng: 390, status: 'ready_for_pickup' },
-      { lat: 60, lng: 350, status: 'on_the_way' },
-      { lat: 80, lng: 300, status: 'on_the_way' },
-      { lat: 100, lng: 250, status: 'on_the_way' },
-      { lat: 150, lng: 150, status: 'on_the_way' },
-      { lat: 200, lng: 50, status: 'delivered' }
+    const statuses = [
+      'preparing',
+      'ready_for_pickup',
+      'picked_up',
+      'on_the_way',
+      'delivered'
     ];
 
-    for (let i = 0; i < points.length; i++) {
+    for (let i = 0; i < statuses.length; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000));
       try {
         await updateDoc(orderRef, {
-          driverLat: points[i].lat,
-          driverLng: points[i].lng,
-          status: points[i].status,
-          estimatedDeliveryTime: i < points.length - 1 ? new Date(Date.now() + (points.length - i) * 60000) : null
+          status: statuses[i],
+          estimatedDeliveryTime: i < statuses.length - 1 ? new Date(Date.now() + (statuses.length - i) * 60000) : null
         });
       } catch (err) {
         console.error('Simulation error:', err);
@@ -239,7 +232,7 @@ export function Orders() {
       const q = query(
         collection(db, 'orders'),
         where('userId', '==', (user as FirebaseUser).uid),
-        orderBy('createdAt', 'desc')
+        limit(20)
       );
 
       unsubscribeFirebase = onSnapshot(q, (snapshot) => {
@@ -247,11 +240,24 @@ export function Orders() {
           id: doc.id,
           ...doc.data()
         })) as OrderData[];
+        
+        // Sort client-side to avoid requiring a composite index
+        fetchedOrders.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+          return timeB - timeA;
+        });
+        
         setOrders(fetchedOrders);
         setLoading(false);
       }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'orders');
+        console.error("Error fetching orders:", error);
         setLoading(false);
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'orders');
+        } catch (e) {
+          // Error is already logged, prevent crash
+        }
       });
     } else if (authType === 'supabase') {
       const fetchSupabaseOrders = async () => {
@@ -337,14 +343,11 @@ export function Orders() {
   const getStatusProgress = (status: string) => {
     switch (status) {
       case 'pending': return 10;
-      case 'confirmed': return 20;
-      case 'preparing': return 30;
-      case 'ready_for_pickup': return 40;
-      case 'driver_assigned': return 50;
-      case 'driver_arrived_at_restaurant': return 60;
-      case 'picked_up': return 70;
-      case 'on_the_way': return 80;
-      case 'driver_arrived_at_customer': return 90;
+      case 'confirmed': return 25;
+      case 'preparing': return 50;
+      case 'ready_for_pickup': return 75;
+      case 'picked_up': return 85;
+      case 'on_the_way': return 90;
       case 'delivered': return 100;
       default: return 0;
     }
@@ -355,16 +358,6 @@ export function Orders() {
       <div className="flex justify-between items-end">
         <h1 className="text-3xl font-bold">{isOrderActive ? 'Active Order' : 'Recent Order'}</h1>
         <div className="flex items-center gap-3">
-          {isOrderActive && authType === 'firebase' && (
-            <button 
-              onClick={simulateDriverMovement}
-              disabled={isSimulating}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all ${isSimulating ? 'bg-white/5 text-white/40' : 'bg-white/10 text-white hover:bg-white/20'}`}
-            >
-              <Navigation size={18} className={isSimulating ? 'animate-pulse' : ''} />
-              {isSimulating ? 'Simulating...' : 'Simulate Driver'}
-            </button>
-          )}
           <button 
             onClick={handleRefresh}
             className={`p-2 bg-white/5 rounded-full hover:bg-white/10 transition-all ${isRefreshing ? 'animate-spin text-primary' : 'text-white/60'}`}
@@ -385,62 +378,6 @@ export function Orders() {
       </div>
       
       <div className="bg-surface rounded-3xl overflow-hidden border border-white/5 shadow-xl">
-        {/* Map View - Only show for active orders */}
-        {isOrderActive && (
-          <div className="relative h-64 bg-zinc-800 w-full overflow-hidden">
-            {/* Map Background Pattern */}
-            <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-            
-            {/* Route Line */}
-            <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-              <motion.path 
-                d="M 50 200 Q 150 150 250 100 T 400 50" 
-                fill="transparent" 
-                stroke="var(--color-primary, #F27D26)" 
-                strokeWidth="4" 
-                strokeDasharray="8 8"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 2, ease: "easeInOut" }}
-              />
-            </svg>
-
-            {/* Restaurant Pin */}
-            <div className="absolute top-[40px] left-[390px] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-              <div className="bg-white text-black p-2 rounded-full shadow-lg">
-                <MapPin size={20} className="fill-black" />
-              </div>
-              <span className="mt-1 text-xs font-bold bg-black/50 px-2 py-0.5 rounded backdrop-blur-sm">Restaurant</span>
-            </div>
-
-            {/* Driver Pin (Real-time or Simulated) */}
-            <motion.div 
-              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
-              animate={{ 
-                top: activeOrder.driverLat || 100, 
-                left: activeOrder.driverLng || 250 
-              }}
-              transition={{ 
-                duration: 2, 
-                ease: "linear" 
-              }}
-            >
-              <div className="bg-primary text-white p-2.5 rounded-full shadow-[0_0_15px_rgba(242,125,38,0.5)] border-2 border-white">
-                <Navigation size={18} className="fill-white" />
-              </div>
-              <span className="mt-1 text-xs font-bold bg-primary/80 px-2 py-0.5 rounded backdrop-blur-sm">Driver</span>
-            </motion.div>
-
-            {/* Home Pin */}
-            <div className="absolute top-[200px] left-[50px] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-              <div className="bg-zinc-700 text-white p-2 rounded-full shadow-lg border-2 border-white/20">
-                <MapPin size={20} />
-              </div>
-              <span className="mt-1 text-xs font-bold bg-black/50 px-2 py-0.5 rounded backdrop-blur-sm">Home</span>
-            </div>
-          </div>
-        )}
-
         {/* Order Details */}
         <div className="p-6 space-y-6">
           {isOrderActive && (
@@ -448,8 +385,7 @@ export function Orders() {
               <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em] text-white/30">
                 <span className={['pending', 'confirmed'].includes(activeOrder.status) ? 'text-primary' : ''}>Confirmed</span>
                 <span className={['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'text-primary' : ''}>Preparing</span>
-                <span className={['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up'].includes(activeOrder.status) ? 'text-primary' : ''}>Rider</span>
-                <span className={['on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'text-primary' : ''}>On Way</span>
+                <span className={['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'text-primary' : ''}>On Way</span>
                 <span className={activeOrder.status === 'delivered' ? 'text-emerald-400' : ''}>Delivered</span>
               </div>
               <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/10">
@@ -468,11 +404,8 @@ export function Orders() {
                 <h2 className="text-xl font-bold">
                   {activeOrder.status === 'delivered' ? 'Delivered' : 
                    activeOrder.status === 'cancelled' ? 'Order Cancelled' :
-                   activeOrder.status === 'driver_arrived_at_customer' ? 'Driver is arriving' :
-                   activeOrder.status === 'on_the_way' ? 'Driver is on the way' :
-                   activeOrder.status === 'picked_up' ? 'Driver picked up order' :
-                   activeOrder.status === 'driver_arrived_at_restaurant' ? 'Driver at restaurant' :
-                   activeOrder.status === 'driver_assigned' ? 'Driver assigned' :
+                   activeOrder.status === 'on_the_way' ? 'Order is on the way' :
+                   activeOrder.status === 'picked_up' ? 'Order picked up' :
                    activeOrder.status === 'ready_for_pickup' ? 'Food is ready for pickup' :
                    activeOrder.status === 'preparing' ? 'Preparing your food' :
                    activeOrder.status === 'confirmed' ? 'Order Confirmed' :
@@ -492,7 +425,7 @@ export function Orders() {
               <div className="bg-primary/20 text-primary p-3 rounded-2xl">
                 <Clock size={24} />
               </div>
-              {isOrderActive && (['confirmed', 'preparing', 'ready_for_pickup', 'driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status)) && (
+              {isOrderActive && (['confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'].includes(activeOrder.status)) && (
                 <button 
                   onClick={() => setShowMap(showMap === activeOrder.id ? null : activeOrder.id)}
                   className="text-xs bg-primary/10 text-primary px-4 py-2 rounded-xl font-bold hover:bg-primary hover:text-white transition-all flex items-center gap-2 border border-primary/20"
@@ -559,15 +492,15 @@ export function Orders() {
 
                 <motion.div 
                   animate={{ 
-                    top: activeOrder.driverLat ? `${activeOrder.driverLat}px` : `40%`, 
-                    left: activeOrder.driverLng ? `${activeOrder.driverLng}px` : `60%` 
+                    top: `40%`, 
+                    left: `60%` 
                   }}
                   className="absolute z-10 flex flex-col items-center"
                 >
                   <div className="p-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/20 animate-bounce">
                     <Navigation size={20} className="text-white" />
                   </div>
-                  <span className="text-[10px] font-bold mt-1 text-blue-400">Driver</span>
+                  <span className="text-[10px] font-bold mt-1 text-blue-400">Order</span>
                 </motion.div>
 
                 <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
@@ -580,7 +513,7 @@ export function Orders() {
                     <Navigation size={20} className="text-blue-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold">Driver is on the way</p>
+                    <p className="text-sm font-bold">Order is on the way</p>
                     <p className="text-xs text-white/40">Estimated arrival: 12 mins</p>
                   </div>
                 </div>
@@ -618,12 +551,12 @@ export function Orders() {
               </div>
 
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'bg-primary text-white' : (activeOrder.status === 'delivered' ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40')}`}>
-                  {activeOrder.status === 'delivered' ? <CheckCircle2 size={20} /> : (['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />)}
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'bg-primary text-white' : (activeOrder.status === 'delivered' ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40')}`}>
+                  {activeOrder.status === 'delivered' ? <CheckCircle2 size={20} /> : (['picked_up', 'on_the_way'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />)}
                 </div>
-                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
-                  <h3 className={`font-bold ${['driver_assigned', 'driver_arrived_at_restaurant', 'picked_up', 'on_the_way', 'driver_arrived_at_customer'].includes(activeOrder.status) ? 'text-white' : (activeOrder.status === 'delivered' ? 'text-primary' : 'text-white/40')}`}>On the Way</h3>
-                  <p className="text-sm text-white/60">Driver is heading to your location.</p>
+                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
+                  <h3 className={`font-bold ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'text-white' : (activeOrder.status === 'delivered' ? 'text-primary' : 'text-white/40')}`}>On the Way</h3>
+                  <p className="text-sm text-white/60">Order is heading to your location.</p>
                 </div>
               </div>
             </div>
@@ -755,64 +688,14 @@ export function Orders() {
       </AnimatePresence>
 
       {/* Chat Modal */}
-      <AnimatePresence>
-        {showChat && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div 
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              className="bg-zinc-900 w-full max-w-md rounded-t-3xl sm:rounded-3xl border border-white/10 overflow-hidden flex flex-col h-[80vh] sm:h-[600px]"
-            >
-              {/* Chat Header */}
-              <div className="p-4 border-b border-white/10 flex justify-between items-center bg-zinc-800/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-bold">
-                    D
-                  </div>
-                  <div>
-                    <h3 className="font-bold">Driver (David)</h3>
-                    <p className="text-xs text-green-500">Online</p>
-                  </div>
-                </div>
-                <button onClick={() => setShowChat(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
-                  <X size={20} />
-                </button>
-              </div>
-
-              {/* Chat Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {chatHistory.map((msg, idx) => (
-                  <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${
-                      msg.sender === 'user' ? 'bg-primary text-white rounded-tr-none' : 'bg-white/10 text-white rounded-tl-none'
-                    }`}>
-                      {msg.text}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Chat Input */}
-              <form onSubmit={handleSendMessage} className="p-4 border-t border-white/10 bg-zinc-800/50 flex gap-2">
-                <input 
-                  type="text" 
-                  value={chatMessage}
-                  onChange={(e) => setChatMessage(e.target.value)}
-                  placeholder="Type a message..."
-                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-primary/50"
-                />
-                <button 
-                  type="submit"
-                  className="bg-primary text-white p-2 rounded-xl hover:bg-primary/90 transition-colors"
-                >
-                  <Navigation size={20} className="rotate-90" />
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <ChatModal 
+        showChat={showChat}
+        setShowChat={setShowChat}
+        chatHistory={chatHistory}
+        chatMessage={chatMessage}
+        setChatMessage={setChatMessage}
+        handleSendMessage={handleSendMessage}
+      />
     </div>
   );
 }

@@ -23,8 +23,7 @@ export function RestaurantComments({ restaurantId, restaurantName }: RestaurantC
     setLoading(true);
     const q = query(
       collection(db, 'comments'),
-      where('restaurantId', '==', restaurantId),
-      orderBy('createdAt', 'desc')
+      where('restaurantId', '==', restaurantId)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -32,11 +31,21 @@ export function RestaurantComments({ restaurantId, restaurantName }: RestaurantC
         id: doc.id,
         ...doc.data()
       }));
+      
+      fetchedComments.sort((a: any, b: any) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return timeB - timeA;
+      });
+      
       setComments(fetchedComments);
       setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'comments');
+      console.error("Error fetching comments:", error);
       setLoading(false);
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'comments');
+      } catch (e) {}
     });
 
     return () => unsubscribe();

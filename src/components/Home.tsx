@@ -6,7 +6,7 @@ import { MOCK_RESTAURANTS, CATEGORIES } from '../data/mockData';
 import { Restaurant, Promotion } from '../types';
 import { ThreeDCard } from './ThreeDCard';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
 
 const DIETARY_FILTERS = ['Vegan', 'Gluten-Free', 'Halal', 'Spicy'];
 
@@ -33,13 +33,17 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
         try {
           const q = query(
             collection(db, 'comments'),
-            where('restaurantId', '==', restaurant.id),
-            orderBy('createdAt', 'desc'),
-            limit(1)
+            where('restaurantId', '==', restaurant.id)
           );
           const snapshot = await getDocs(q);
           if (!snapshot.empty) {
-            reviews[restaurant.id] = snapshot.docs[0].data();
+            const docs = snapshot.docs.map(d => d.data());
+            docs.sort((a: any, b: any) => {
+              const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+              const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+              return timeB - timeA;
+            });
+            reviews[restaurant.id] = docs[0];
           }
         } catch (error) {
           console.error(`Error fetching review for ${restaurant.id}:`, error);
@@ -71,33 +75,39 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchRestaurants = async () => {
-      try {
-        const q = query(collection(db, 'restaurants'), where('isActive', '==', true));
-        const snapshot = await getDocs(q);
-        const firestoreRestaurants = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as Restaurant));
-        
-        // Merge with mock data for demo purposes, but prefer firestore
-        const merged = [...firestoreRestaurants];
-        MOCK_RESTAURANTS.forEach(mock => {
-          if (!merged.find(r => r.id === mock.id)) {
-            merged.push(mock);
-          }
-        });
-        
-        setRestaurants(merged);
-      } catch (error) {
-        console.error('Error fetching restaurants:', error);
-        setRestaurants(MOCK_RESTAURANTS);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const q = query(collection(db, 'restaurants'), where('isActive', '==', true));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const firestoreRestaurants = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Restaurant));
+      
+      // Merge with mock data for demo purposes, but prefer firestore
+      const merged = [...firestoreRestaurants];
+      MOCK_RESTAURANTS.forEach(mock => {
+        if (!merged.find(r => r.id === mock.id)) {
+          merged.push(mock);
+        }
+      });
+      
+      // Sort: Newly created (Firestore) at the top, then others
+      // Firestore restaurants usually have createdAt as a Timestamp or ISO string
+      const sorted = merged.sort((a, b) => {
+        const dateA = a.createdAt ? (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : (a.createdAt as any).seconds * 1000) : 0;
+        const dateB = b.createdAt ? (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : (b.createdAt as any).seconds * 1000) : 0;
+        return dateB - dateA;
+      });
+      
+      setRestaurants(sorted);
+      setLoading(false);
+    }, (error) => {
+      console.error('Error fetching restaurants:', error);
+      setRestaurants(MOCK_RESTAURANTS);
+      setLoading(false);
+    });
 
-    fetchRestaurants();
+    return () => unsubscribe();
   }, []);
 
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -108,16 +118,21 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
       try {
         const q = query(
           collection(db, 'promotions'),
-          where('isActive', '==', true),
-          orderBy('createdAt', 'desc'),
-          limit(10)
+          where('isActive', '==', true)
         );
         const snapshot = await getDocs(q);
         const activePromos = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         } as Promotion));
-        setPromotions(activePromos);
+        
+        activePromos.sort((a: any, b: any) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+          return timeB - timeA;
+        });
+        
+        setPromotions(activePromos.slice(0, 10));
       } catch (error) {
         console.error('Error fetching promotions:', error);
       } finally {

@@ -24,16 +24,13 @@ export function RestaurantStats({ restaurant }: RestaurantStatsProps) {
     // Fetch Orders
     const ordersQuery = query(
       collection(db, 'orders'),
-      where('restaurantId', '==', restaurant.id),
-      orderBy('createdAt', 'desc'),
-      limit(100)
+      where('restaurantId', '==', restaurant.id)
     );
 
     // Fetch Comments
     const commentsQuery = query(
       collection(db, 'comments'),
-      where('restaurantId', '==', restaurant.id),
-      orderBy('createdAt', 'desc')
+      where('restaurantId', '==', restaurant.id)
     );
 
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
@@ -42,11 +39,21 @@ export function RestaurantStats({ restaurant }: RestaurantStatsProps) {
         ...doc.data(),
         items: typeof doc.data().items === 'string' ? JSON.parse(doc.data().items) : doc.data().items
       })) as Order[];
-      setOrders(fetchedOrders);
+      
+      fetchedOrders.sort((a: any, b: any) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return timeB - timeA;
+      });
+      
+      setOrders(fetchedOrders.slice(0, 100)); // Apply limit client-side
       setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'orders');
+      console.error("Error fetching stats orders:", error);
       setLoading(false);
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'orders');
+      } catch (e) {}
     });
 
     const unsubscribeComments = onSnapshot(commentsQuery, (snapshot) => {
@@ -54,9 +61,19 @@ export function RestaurantStats({ restaurant }: RestaurantStatsProps) {
         id: doc.id,
         ...doc.data()
       }));
+      
+      fetchedComments.sort((a: any, b: any) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return timeB - timeA;
+      });
+      
       setComments(fetchedComments);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'comments');
+      console.error("Error fetching stats comments:", error);
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'comments');
+      } catch (e) {}
     });
 
     return () => {

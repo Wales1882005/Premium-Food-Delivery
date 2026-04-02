@@ -56,6 +56,13 @@ function AppContent() {
     setIsCartOpen(true);
   };
 
+  const handleReorder = (items: CartItem[], restaurant: Restaurant) => {
+    setCart(items);
+    setSelectedRestaurant(restaurant);
+    setIsCartOpen(true);
+    toast.success(`Reordering from ${restaurant.name}!`);
+  };
+
   const updateQuantity = (id: string, delta: number) => {
     setCart(prev => prev.map(item => {
       if (item.id === id) {
@@ -125,6 +132,7 @@ function AppContent() {
             onSelectRestaurant={setSelectedRestaurant}
             onOpenSuggestion={() => setIsSuggestionModalOpen(true)}
             onOpenRestaurantOnboarding={() => setIsRestaurantOnboardingOpen(true)}
+            onReorder={handleReorder}
           />
         )}
       </div>
