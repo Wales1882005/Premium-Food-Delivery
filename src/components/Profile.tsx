@@ -788,6 +788,49 @@ const RestaurantDashboardView = ({
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {restaurantToDelete && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-surface p-6 rounded-3xl border border-white/10 max-w-sm w-full space-y-6"
+            >
+              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto text-red-500">
+                <AlertTriangle size={32} />
+              </div>
+              <div className="text-center space-y-2">
+                <h3 className="text-xl font-bold">Delete Restaurant?</h3>
+                <p className="text-white/60 text-sm">
+                  Are you sure you want to delete this restaurant? This action cannot be undone and all associated data will be lost.
+                </p>
+              </div>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setRestaurantToDelete(null)}
+                  className="flex-1 py-3 rounded-xl font-bold bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => handleDeleteRestaurant(restaurantToDelete)}
+                  className="flex-1 py-3 rounded-xl font-bold bg-red-500 hover:bg-red-600 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Edit Restaurant Modal */}
       <AnimatePresence>
         {editingRestaurant && (
@@ -1174,48 +1217,6 @@ const RestaurantOrdersView = ({ selectedRestaurantForOrders, setActiveSection }:
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {restaurantToDelete && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
-          >
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-surface p-6 rounded-3xl border border-white/10 max-w-sm w-full space-y-6"
-            >
-              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto text-red-500">
-                <AlertTriangle size={32} />
-              </div>
-              <div className="text-center space-y-2">
-                <h3 className="text-xl font-bold">Delete Restaurant?</h3>
-                <p className="text-white/60 text-sm">
-                  Are you sure you want to delete this restaurant? This action cannot be undone and all associated data will be lost.
-                </p>
-              </div>
-              <div className="flex gap-4">
-                <button 
-                  onClick={() => setRestaurantToDelete(null)}
-                  className="flex-1 py-3 rounded-xl font-bold bg-white/5 hover:bg-white/10 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={() => handleDeleteRestaurant(restaurantToDelete)}
-                  className="flex-1 py-3 rounded-xl font-bold bg-red-500 hover:bg-red-600 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 };
