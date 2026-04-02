@@ -523,7 +523,7 @@ const RestaurantDashboardView = ({
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                 
                 {/* Image Edit Controls */}
-                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-4 right-4 flex gap-2 transition-opacity">
                   <button 
                     onClick={() => setEditingRestaurant(restaurant)}
                     className="p-2 bg-black/50 hover:bg-black/80 backdrop-blur-md rounded-xl text-white transition-colors"
@@ -820,7 +820,7 @@ const RestaurantDashboardView = ({
                   Cancel
                 </button>
                 <button 
-                  onClick={() => handleDeleteRestaurant(restaurantToDelete)}
+                  onClick={() => restaurantToDelete && handleDeleteRestaurant(restaurantToDelete)}
                   className="flex-1 py-3 rounded-xl font-bold bg-red-500 hover:bg-red-600 transition-colors"
                 >
                   Delete
@@ -1076,6 +1076,7 @@ const RestaurantOrdersView = ({ selectedRestaurantForOrders, setActiveSection }:
   }, [selectedRestaurantForOrders, authType, user]);
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    console.log(`Updating order ${orderId} to ${newStatus}`);
     try {
       if (authType === 'firebase') {
         await updateDoc(doc(db, 'orders', orderId), { status: newStatus });
@@ -1088,10 +1089,10 @@ const RestaurantOrdersView = ({ selectedRestaurantForOrders, setActiveSection }:
       }
       toast.success(`Order status updated to ${newStatus}`);
     } catch (error) {
+      console.error('Error updating order:', error);
       if (authType === 'firebase') {
         handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
       } else {
-        console.error('Error updating order:', error);
         toast.error('Failed to update order status');
       }
     }
