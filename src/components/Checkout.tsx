@@ -65,11 +65,28 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
           
           try {
             // Reverse geocoding using OpenStreetMap Nominatim API
-            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`);
             const data = await response.json();
             if (data && data.display_name) {
-              setAddress(data.display_name);
-              setCustomAddress(data.display_name);
+              // Try to construct a more readable address if possible
+              let readableAddress = data.display_name;
+              if (data.address) {
+                const { road, house_number, suburb, city, town, village, state, postcode, country } = data.address;
+                const parts = [];
+                if (house_number && road) parts.push(`${house_number} ${road}`);
+                else if (road) parts.push(road);
+                if (suburb) parts.push(suburb);
+                if (city || town || village) parts.push(city || town || village);
+                if (state) parts.push(state);
+                if (postcode) parts.push(postcode);
+                if (country) parts.push(country);
+                
+                if (parts.length > 0) {
+                  readableAddress = parts.join(', ');
+                }
+              }
+              setAddress(readableAddress);
+              setCustomAddress(readableAddress);
             } else {
               setAddress(`Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
               setCustomAddress(`Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
@@ -115,11 +132,27 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
         
         try {
           // Reverse geocoding
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`);
           const data = await response.json();
           if (data && data.display_name) {
-            setAddress(data.display_name);
-            setCustomAddress(data.display_name);
+            let readableAddress = data.display_name;
+            if (data.address) {
+              const { road, house_number, suburb, city, town, village, state, postcode, country } = data.address;
+              const parts = [];
+              if (house_number && road) parts.push(`${house_number} ${road}`);
+              else if (road) parts.push(road);
+              if (suburb) parts.push(suburb);
+              if (city || town || village) parts.push(city || town || village);
+              if (state) parts.push(state);
+              if (postcode) parts.push(postcode);
+              if (country) parts.push(country);
+              
+              if (parts.length > 0) {
+                readableAddress = parts.join(', ');
+              }
+            }
+            setAddress(readableAddress);
+            setCustomAddress(readableAddress);
           } else {
             setAddress(`Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
             setCustomAddress(`Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
