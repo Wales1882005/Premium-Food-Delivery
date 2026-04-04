@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { motion, useMotionValue, useTransform } from 'motion/react';
+import { motion } from 'motion/react';
 import { ArrowLeft, MapPin, CreditCard, CheckCircle2, Clock, Navigation, Loader2, AlertCircle, Award, DollarSign } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,6 +12,17 @@ import { User as SupabaseUser } from '@supabase/supabase-js';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 import { StripePayment } from './StripePayment';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for default marker icon in react-leaflet
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_mock_key');
 
@@ -38,9 +49,26 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
   const [redeemPoints, setRedeemPoints] = useState(false);
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   
-  const mapRef = useRef<HTMLDivElement>(null);
-  const pinX = useMotionValue(0);
-  const pinY = useMotionValue(0);
+  const [position, setPosition] = useState<[number, number]>([37.7749, -122.4194]); // Default SF
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [customAddress, setCustomAddress] = useState(address);
+
+  function LocationMarker() {
+    useMapEvents({
+      click(e) {
+        setPosition([e.latlng.lat, e.latlng.lng]);
+        // Calculate a mock distance based on the new position
+        const dist = Math.max(1, Math.random() * 10);
+        setDistanceKm(dist);
+        setCustomAddress(`Custom Location (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`);
+        setAddress(`Custom Location (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`);
+      },
+    });
+
+    return position === null ? null : (
+      <Marker position={position} />
+    );
+  }
 
   // Calculate fees
   const subtotal = total;
@@ -52,20 +80,6 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
 
   const discount = pointsToRedeem / 100;
   const finalTotal = Math.max(0, subtotal + serviceFee + deliveryFee - discount);
-
-  // Simulate address change when pin moves
-  useEffect(() => {
-    const unsubscribeX = pinX.on("change", (v) => {
-      if (Math.abs(v) > 50) {
-        setAddress("456 Tech Boulevard, Floor 12, San Francisco, CA 94107");
-        setDistanceKm(4.2);
-      } else {
-        setAddress("123 Design Avenue, Suite 4B, San Francisco, CA 94105");
-        setDistanceKm(2.5);
-      }
-    });
-    return () => unsubscribeX();
-  }, [pinX]);
 
   const handleNextStep = async () => {
     if (step === 1) {
@@ -153,8 +167,8 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
               pointsRedeemed: pointsToRedeem,
               status: 'pending',
               deliveryAddress: address,
-              deliveryLat: 37.7749 + (pinY.get() * 0.0001),
-              deliveryLng: -122.4194 + (pinX.get() * 0.0001),
+              deliveryLat: position[0],
+              deliveryLng: position[1],
               restaurantLat: restaurant.lat || 37.7749,
               restaurantLng: restaurant.lng || -122.4194,
               createdAt: serverTimestamp()
@@ -202,8 +216,8 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
                   payment_method: paymentMethod,
                   status: 'pending',
                   delivery_address: address,
-                  delivery_lat: 37.7749 + (pinY.get() * 0.0001),
-                  delivery_lng: -122.4194 + (pinX.get() * 0.0001),
+                  delivery_lat: position[0],
+                  delivery_lng: position[1],
                   restaurant_lat: restaurant.lat || 37.7749,
                   restaurant_lng: restaurant.lng || -122.4194,
                 })
@@ -316,38 +330,65 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
           </h2>
 
           {/* Interactive Map */}
-          <div className="bg-surface rounded-3xl overflow-hidden border border-white/5 shadow-xl relative h-64 w-full" ref={mapRef}>
-            {/* Map Background Pattern */}
-            <div className="absolute inset-0 opacity-20 bg-zinc-800" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-            
-            {/* Draggable Pin */}
-            <motion.div 
-              drag
-              dragConstraints={mapRef}
-              dragElastic={0.1}
-              dragMomentum={false}
-              style={{ x: pinX, y: pinY }}
-              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center cursor-grab active:cursor-grabbing z-10"
+          <div className="bg-surface rounded-3xl overflow-hidden border border-white/5 shadow-xl relative h-64 w-full z-0">
+            <MapContainer 
+              center={position} 
+              zoom={13} 
+              style={{ height: '100%', width: '100%' }}
+              zoomControl={false}
             >
-              <div className="bg-primary text-white p-3 rounded-full shadow-[0_10px_20px_rgba(242,125,38,0.4)] border-2 border-white relative">
-                <MapPin size={24} className="fill-white" />
-                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-primary" />
-              </div>
-              <span className="mt-3 text-xs font-bold bg-black/80 px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap shadow-lg border border-white/10">
-                Drag to adjust
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <LocationMarker />
+            </MapContainer>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[400] pointer-events-none">
+              <span className="text-xs font-bold bg-black/80 px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap shadow-lg border border-white/10">
+                Click map to set location
               </span>
-            </motion.div>
+            </div>
           </div>
 
           <div className="bg-surface p-4 rounded-2xl border border-primary/50 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-16 h-16 bg-primary/10 rounded-bl-full" />
             <div className="flex justify-between items-start">
-              <div>
+              <div className="w-full pr-8">
                 <p className="font-bold mb-1">Selected Location</p>
-                <p className="text-white/60 text-sm">{address}</p>
-                <p className="text-primary text-xs mt-1">{distanceKm.toFixed(1)} km away</p>
+                {isEditingAddress ? (
+                  <div className="flex gap-2 mt-2">
+                    <input 
+                      type="text" 
+                      value={customAddress}
+                      onChange={(e) => setCustomAddress(e.target.value)}
+                      className="flex-1 bg-background border border-white/10 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      placeholder="Enter full address"
+                      autoFocus
+                    />
+                    <button 
+                      onClick={() => {
+                        setAddress(customAddress);
+                        setIsEditingAddress(false);
+                      }}
+                      className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold"
+                    >
+                      Save
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-white/60 text-sm">{address}</p>
+                    <button 
+                      onClick={() => setIsEditingAddress(true)}
+                      className="text-primary text-xs mt-2 font-bold hover:underline"
+                    >
+                      Edit Address
+                    </button>
+                  </div>
+                )}
+                <p className="text-primary text-xs mt-2">{distanceKm.toFixed(1)} km away</p>
               </div>
-              <div className="w-5 h-5 rounded-full border-4 border-primary bg-background" />
+              <div className="w-5 h-5 rounded-full border-4 border-primary bg-background shrink-0" />
             </div>
           </div>
 
