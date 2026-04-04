@@ -228,8 +228,7 @@ service cloud.firestore {
                        
       allow update: if isAuthenticated() && (
         (resource.data.userId == request.auth.uid && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
-         request.resource.data.status == 'cancelled') ||
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'estimatedDeliveryTime'])) ||
         ('restaurantOwnerId' in resource.data && resource.data.restaurantOwnerId == request.auth.uid && 
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
         (isDriver() && (
@@ -249,7 +248,7 @@ service cloud.firestore {
         isAdmin()
       );
       
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
 
       match /messages/{messageId} {
         allow read: if isAuthenticated() && (

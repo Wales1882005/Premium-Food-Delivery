@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon, AlertCircle } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon, AlertCircle, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, where, limit } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, where, limit } from 'firebase/firestore';
 import { supabase } from '../lib/supabase';
 import { User as FirebaseUser } from 'firebase/auth';
 import { User as SupabaseUser } from '@supabase/supabase-js';
@@ -151,6 +151,21 @@ export function Orders() {
     } catch (error) {
       console.error('Error reordering:', error);
       toast.error('Failed to reorder');
+    }
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!user) return;
+    try {
+      if (authType === 'firebase') {
+        await deleteDoc(doc(db, 'orders', orderId));
+      } else {
+        await supabase.from('orders').delete().eq('id', orderId);
+      }
+      toast.success('Order removed from history');
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      toast.error('Failed to remove order');
     }
   };
 
@@ -743,6 +758,13 @@ export function Orders() {
                     className="w-12 bg-white/5 hover:bg-white/10 text-white rounded-xl flex items-center justify-center transition-all border border-white/10"
                   >
                     {expandedOrderId === order.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteOrder(order.id)}
+                    className="w-12 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl flex items-center justify-center transition-all border border-red-500/20"
+                    title="Delete Order"
+                  >
+                    <Trash2 size={18} />
                   </button>
                 </div>
 
