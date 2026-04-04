@@ -76,7 +76,7 @@ export function Orders() {
     if (!user) return;
     
     const order = orders.find(o => o.id === orderId);
-    if (order && order.status !== 'confirmed') {
+    if (order && order.status !== 'pending' && order.status !== 'confirmed') {
       toast.error('Cannot cancel order once it is being prepared. Please contact the restaurant.');
       setOrderToCancel(null);
       return;
@@ -169,7 +169,16 @@ export function Orders() {
     }
   };
 
-  const activeOrder = useMemo(() => orders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || orders[0], [orders]);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+  const activeOrder = useMemo(() => {
+    if (selectedOrderId) {
+      const found = orders.find(o => o.id === selectedOrderId);
+      if (found) return found;
+    }
+    return orders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || orders[0];
+  }, [orders, selectedOrderId]);
+  
   const isOrderActive = useMemo(() => activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled', [activeOrder]);
 
   // Real-time Chat Listener
@@ -712,7 +721,7 @@ export function Orders() {
         <div className="mt-12 space-y-4">
           <h2 className="text-2xl font-bold">Order History</h2>
           <div className="space-y-4">
-            {orders.slice(1).map(order => (
+            {orders.filter(o => o.id !== activeOrder?.id).map(order => (
               <div key={order.id} className="bg-surface p-5 rounded-3xl border border-white/5 space-y-4">
                 <div className="flex justify-between items-start">
                   <div className="flex gap-4">
@@ -744,6 +753,18 @@ export function Orders() {
                     <RefreshCw size={16} />
                     Reorder
                   </button>
+                  {order.status !== 'delivered' && order.status !== 'cancelled' && (
+                    <button 
+                      onClick={() => {
+                        setSelectedOrderId(order.id);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 border border-primary/20"
+                    >
+                      <MapIcon size={16} />
+                      Track
+                    </button>
+                  )}
                   {order.status === 'delivered' && (
                     <button 
                       onClick={() => setReviewOrder(order)}
