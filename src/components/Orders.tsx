@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, where, limit } from 'firebase/firestore';
@@ -49,6 +49,28 @@ export function Orders() {
   const [orderToCancel, setOrderToCancel] = useState<string | null>(null);
   const [reviewOrder, setReviewOrder] = useState<OrderData | null>(null);
   const [showMap, setShowMap] = useState<string | null>(null);
+
+  // Helper to check if a restaurant is a sample one
+  const isSampleRestaurant = (restaurantId?: string, restaurantName?: string) => {
+    // Check by ID pattern (r1, r2, etc.)
+    const isSampleId = restaurantId && /^r\d+$/.test(restaurantId);
+    
+    // Fallback: Check by known sample names just in case ID is missing
+    const sampleNames = [
+      'Sakura Sushi House', 'Firewood Pizza Co.', 'The Halal Grill', 
+      'Green Bowl Vegan', 'Smash & Grab Burgers', 'Midnight Cravings Desserts',
+      'Sip & Chill Beverages', 'The Juice Lab', 'Boba Bliss', 'Pizza Hut Pavilion KL'
+    ];
+    const isSampleName = restaurantName && sampleNames.includes(restaurantName);
+    
+    return isSampleId || isSampleName;
+  };
+
+  // Performance tracking
+  useEffect(() => {
+    console.time('OrdersFetch');
+    return () => console.timeEnd('OrdersFetch');
+  }, []);
 
   const handleCancelOrder = async (orderId: string) => {
     if (!user) return;
@@ -132,8 +154,8 @@ export function Orders() {
     }
   };
 
-  const activeOrder = orders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || orders[0];
-  const isOrderActive = activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled';
+  const activeOrder = useMemo(() => orders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || orders[0], [orders]);
+  const isOrderActive = useMemo(() => activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled', [activeOrder]);
 
   // Real-time Chat Listener
   useEffect(() => {
@@ -219,6 +241,61 @@ export function Orders() {
     toast.success('Simulation complete!');
   };
 
+  // Auto-progress for sample restaurants
+  useEffect(() => {
+    if (!user || !activeOrder || isSimulating) return;
+    
+    const isSample = isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName);
+    
+    // Debug log to help identify why it might not be progressing
+    console.log('Order Tracking Check:', {
+      orderId: activeOrder.id,
+      restaurant: activeOrder.restaurantName,
+      restaurantId: activeOrder.restaurantId,
+      isSample,
+      status: activeOrder.status,
+      authType
+    });
+
+    if (!isSample) return;
+
+    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'];
+    const currentIndex = statusOrder.indexOf(activeOrder.status);
+    
+    if (currentIndex === -1 || activeOrder.status === 'delivered' || activeOrder.status === 'cancelled') return;
+
+    const nextStatus = statusOrder[currentIndex + 1];
+    if (!nextStatus) return;
+
+    // Faster progression for sample restaurants
+    const delay = activeOrder.status === 'pending' ? 2000 : 7000;
+
+    const timer = setTimeout(async () => {
+      try {
+        console.log(`Auto-progressing order ${activeOrder.id} to ${nextStatus}`);
+        if (authType === 'firebase') {
+          const orderRef = doc(db, 'orders', activeOrder.id);
+          await updateDoc(orderRef, {
+            status: nextStatus,
+            estimatedDeliveryTime: nextStatus !== 'delivered' ? new Date(Date.now() + 15 * 60000).toISOString() : null
+          });
+        } else {
+          await supabase
+            .from('orders')
+            .update({ 
+              status: nextStatus,
+              estimated_delivery_time: nextStatus !== 'delivered' ? new Date(Date.now() + 15 * 60000).toISOString() : null
+            })
+            .eq('id', activeOrder.id);
+        }
+      } catch (err) {
+        console.error('Auto-progress error:', err);
+      }
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [user, activeOrder?.id, activeOrder?.status, authType, isSimulating]);
+
   useEffect(() => {
     if (!user) {
       setLoading(false);
@@ -250,6 +327,7 @@ export function Orders() {
         
         setOrders(fetchedOrders);
         setLoading(false);
+        console.timeEnd('OrdersFetch');
       }, (error) => {
         console.error("Error fetching orders:", error);
         setLoading(false);
@@ -309,6 +387,18 @@ export function Orders() {
   }, [user, authType]);
 
   // Removed local simulation useEffect as we now use real DB updates
+
+  const getMapPosition = (status: string) => {
+    switch (status) {
+      case 'confirmed': return { top: '20%', left: '80%' };
+      case 'preparing': return { top: '25%', left: '75%' };
+      case 'ready_for_pickup': return { top: '30%', left: '70%' };
+      case 'picked_up': return { top: '35%', left: '65%' };
+      case 'on_the_way': return { top: '55%', left: '45%' };
+      case 'delivered': return { top: '80%', left: '20%' };
+      default: return { top: '20%', left: '80%' };
+    }
+  };
 
   if (loading) {
     return (
@@ -414,6 +504,12 @@ export function Orders() {
                 {activeOrder.status === 'delivered' && <CheckCircle2 className="text-green-500" size={20} />}
               </div>
               <p className="text-white/60 text-sm">Your order from {activeOrder.restaurantName}</p>
+              {activeOrder.status === 'pending' && !isSampleRestaurant(activeOrder.restaurantId) && (
+                <p className="text-amber-400 text-[10px] font-bold uppercase tracking-wider mt-1 flex items-center gap-1">
+                  <AlertCircle size={10} />
+                  Waiting for Manual Approval
+                </p>
+              )}
               {activeOrder.estimatedDeliveryTime && (
                 <p className="text-primary text-xs font-bold flex items-center gap-1 mt-1">
                   <Clock size={12} />
@@ -476,14 +572,14 @@ export function Orders() {
               <div className="h-[300px] relative p-4">
                 <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10" />
                 
-                <div className="absolute top-10 right-10 flex flex-col items-center">
+                <div className="absolute top-[20%] left-[80%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
                   <div className="p-2 bg-primary rounded-full shadow-lg shadow-primary/20">
-                    <Navigation size={20} className="text-white" />
+                    <MapPin size={20} className="text-white" />
                   </div>
                   <span className="text-[10px] font-bold mt-1 text-white/60">Restaurant</span>
                 </div>
 
-                <div className="absolute bottom-10 left-10 flex flex-col items-center">
+                <div className="absolute top-[80%] left-[20%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
                   <div className="p-2 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/20">
                     <MapPin size={20} className="text-white" />
                   </div>
@@ -491,20 +587,18 @@ export function Orders() {
                 </div>
 
                 <motion.div 
-                  animate={{ 
-                    top: `40%`, 
-                    left: `60%` 
-                  }}
+                  animate={getMapPosition(activeOrder.status)}
+                  transition={{ duration: 2, ease: "easeInOut" }}
                   className="absolute z-10 flex flex-col items-center"
                 >
                   <div className="p-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/20 animate-bounce">
-                    <Navigation size={20} className="text-white" />
+                    <Navigation size={20} className="text-white transform rotate-45" />
                   </div>
                   <span className="text-[10px] font-bold mt-1 text-blue-400">Order</span>
                 </motion.div>
 
                 <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
-                  <line x1="10%" y1="90%" x2="90%" y2="10%" stroke="white" strokeWidth="2" strokeDasharray="5,5" />
+                  <line x1="20%" y1="80%" x2="80%" y2="20%" stroke="white" strokeWidth="2" strokeDasharray="5,5" />
                 </svg>
               </div>
               <div className="p-4 bg-white/5 border-t border-white/5 flex justify-between items-center">
