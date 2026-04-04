@@ -52,18 +52,90 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
   const [position, setPosition] = useState<[number, number]>([37.7749, -122.4194]); // Default SF
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [customAddress, setCustomAddress] = useState(address);
+  const [isLocating, setIsLocating] = useState(false);
+
+  const getCurrentLocation = () => {
+    setIsLocating(true);
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setPosition([lat, lng]);
+          
+          try {
+            // Reverse geocoding using OpenStreetMap Nominatim API
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            const data = await response.json();
+            if (data && data.display_name) {
+              setAddress(data.display_name);
+              setCustomAddress(data.display_name);
+            } else {
+              setAddress(`Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+              setCustomAddress(`Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+            }
+          } catch (error) {
+            console.error("Error reverse geocoding:", error);
+            setAddress(`Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+            setCustomAddress(`Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+          }
+          
+          const dist = Math.max(1, Math.random() * 10);
+          setDistanceKm(dist);
+          setIsLocating(false);
+        },
+        (error) => {
+          console.error("Error getting location:", error);
+          toast.error("Could not get your location. Please check your permissions.");
+          setIsLocating(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      toast.error("Geolocation is not supported by your browser");
+      setIsLocating(false);
+    }
+  };
+
+  useEffect(() => {
+    // Try to get location on mount
+    getCurrentLocation();
+  }, []);
 
   function LocationMarker() {
-    useMapEvents({
-      click(e) {
-        setPosition([e.latlng.lat, e.latlng.lng]);
+    const map = useMapEvents({
+      async click(e) {
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+        setPosition([lat, lng]);
+        
         // Calculate a mock distance based on the new position
         const dist = Math.max(1, Math.random() * 10);
         setDistanceKm(dist);
-        setCustomAddress(`Custom Location (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`);
-        setAddress(`Custom Location (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`);
+        
+        try {
+          // Reverse geocoding
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const data = await response.json();
+          if (data && data.display_name) {
+            setAddress(data.display_name);
+            setCustomAddress(data.display_name);
+          } else {
+            setAddress(`Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+            setCustomAddress(`Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+          }
+        } catch (error) {
+          setAddress(`Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+          setCustomAddress(`Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+        }
       },
     });
+
+    useEffect(() => {
+      if (position) {
+        map.flyTo(position, map.getZoom());
+      }
+    }, [position, map]);
 
     return position === null ? null : (
       <Marker position={position} />
@@ -325,9 +397,19 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
           exit={{ opacity: 0, x: -20 }}
           className="space-y-6"
         >
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <MapPin className="text-primary" /> Delivery Address
-          </h2>
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <MapPin className="text-primary" /> Delivery Address
+            </h2>
+            <button 
+              onClick={getCurrentLocation}
+              disabled={isLocating}
+              className="flex items-center gap-2 text-xs font-bold bg-primary/10 text-primary px-3 py-1.5 rounded-full hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              {isLocating ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
+              Use Current Location
+            </button>
+          </div>
 
           {/* Interactive Map */}
           <div className="bg-surface rounded-3xl overflow-hidden border border-white/5 shadow-xl relative h-64 w-full z-0">
