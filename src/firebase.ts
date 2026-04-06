@@ -3,28 +3,38 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+let app;
+let auth: any = null;
+let db: any = null;
 
-// Use getFirestore with the provided database ID
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-
-// Validate Connection to Firestore
-async function testConnection() {
-  try {
-    // Attempt to fetch a non-existent document from the server to test connectivity
-    await getDocFromServer(doc(db, '_connection_test_', 'test'));
-    console.log('Firestore connection test: Success (reached server)');
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Firestore connection test: Failed. The client is offline. Please check your Firebase configuration and database ID.");
-    } else {
-      // Other errors (like permission denied) still mean we reached the server
-      console.log('Firestore connection test: Reached server, but encountered an error (this is expected for a test path):', error);
-    }
+try {
+  if (!firebaseConfig || !firebaseConfig.projectId || firebaseConfig.projectId === "TODO_PROJECT_ID") {
+    throw new Error("Invalid Firebase configuration. Please check firebase-applet-config.json");
   }
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  
+  // Validate Connection to Firestore
+  const testConnection = async () => {
+    try {
+      if (db) {
+        await getDocFromServer(doc(db, '_connection_test_', 'test'));
+        console.log('Firestore connection test: Success');
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('the client is offline')) {
+        console.error("Firestore connection test: Failed (offline)");
+      }
+    }
+  };
+  testConnection();
+} catch (error) {
+  console.error("Firebase Initialization Error:", error);
+  // Keep them as null so components can guard against them
 }
-testConnection();
+
+export { auth, db };
 
 export enum OperationType {
   CREATE = 'create',

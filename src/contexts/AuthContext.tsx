@@ -35,35 +35,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAuthReady = isFirebaseReady && isSupabaseReady;
 
   useEffect(() => {
+    if (!auth || typeof onAuthStateChanged !== 'function') {
+      console.warn('Firebase Auth is not available. Skipping Firebase auth listener.');
+      setIsFirebaseReady(true);
+      return;
+    }
+
     // Firebase Auth Listener
     const unsubscribeFirebase = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         setAuthType('firebase');
         try {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-          
-          if (userSnap.exists()) {
-            setCravePoints(userSnap.data().cravePoints || 0);
-            setRole(userSnap.data().role || 'customer');
-          } else {
-            const newProfile: any = {
-              uid: currentUser.uid,
-              email: currentUser.email || 'no-email@example.com',
-              cravePoints: 0,
-              role: 'customer',
-              createdAt: serverTimestamp()
-            };
-            if (currentUser.displayName) newProfile.displayName = currentUser.displayName;
-            if (currentUser.photoURL) newProfile.photoURL = currentUser.photoURL;
-            
-            await setDoc(userRef, newProfile);
-            setCravePoints(0);
-            setRole('customer');
+          if (db && typeof getDoc === 'function') { // Check if db is initialized
+             const userRef = doc(db, 'users', currentUser.uid);
+             const userSnap = await getDoc(userRef);
+             
+             if (userSnap.exists()) {
+               setCravePoints(userSnap.data().cravePoints || 0);
+               setRole(userSnap.data().role || 'customer');
+             } else {
+               const newProfile: any = {
+                 uid: currentUser.uid,
+                 email: currentUser.email || 'no-email@example.com',
+                 cravePoints: 0,
+                 role: 'customer',
+                 createdAt: serverTimestamp()
+               };
+               if (currentUser.displayName) newProfile.displayName = currentUser.displayName;
+               if (currentUser.photoURL) newProfile.photoURL = currentUser.photoURL;
+               
+               await setDoc(userRef, newProfile);
+               setCravePoints(0);
+               setRole('customer');
+             }
           }
         } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
+          console.error('Firestore error in AuthContext:', error);
         }
       } else {
         setUser(prev => (prev && 'aud' in prev ? prev : null));
@@ -74,52 +82,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Supabase Auth Listener
     const initSupabase = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        setAuthType('supabase');
-        
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('crave_points, role')
-          .eq('id', session.user.id)
-          .single();
-
-        if (profile) {
-          setCravePoints(profile.crave_points || 0);
-          setRole(profile.role || 'customer');
+      try {
+        if (!supabase || !supabase.auth) {
+          setIsSupabaseReady(true);
+          return;
         }
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setUser(session.user);
+          setAuthType('supabase');
+          
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('crave_points, role')
+            .eq('id', session.user.id)
+            .single();
+
+          if (profile) {
+            setCravePoints(profile.crave_points || 0);
+            setRole(profile.role || 'customer');
+          }
+        }
+      } catch (error) {
+        console.error('Supabase initialization error in AuthContext:', error);
+      } finally {
+        setIsSupabaseReady(true);
       }
-      setIsSupabaseReady(true);
     };
 
     initSupabase();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        setAuthType('supabase');
-        
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('crave_points, role')
-          .eq('id', session.user.id)
-          .single();
+    let subscription: any = null;
+    if (supabase && supabase.auth) {
+      const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (session?.user) {
+          setUser(session.user);
+          setAuthType('supabase');
+          
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('crave_points, role')
+            .eq('id', session.user.id)
+            .single();
 
-        if (profile) {
-          setCravePoints(profile.crave_points || 0);
-          setRole(profile.role || 'customer');
+          if (profile) {
+            setCravePoints(profile.crave_points || 0);
+            setRole(profile.role || 'customer');
+          }
+        } else {
+          setUser(prev => (prev && 'uid' in prev ? prev : null));
+          setAuthType(prev => (prev === 'supabase' ? null : prev));
         }
-      } else {
-        setUser(prev => (prev && 'uid' in prev ? prev : null));
-        setAuthType(prev => (prev === 'supabase' ? null : prev));
-      }
-      setIsSupabaseReady(true);
-    });
+        setIsSupabaseReady(true);
+      });
+      subscription = data.subscription;
+    }
 
     return () => {
-      unsubscribeFirebase();
-      subscription.unsubscribe();
+      if (unsubscribeFirebase) unsubscribeFirebase();
+      if (subscription) subscription.unsubscribe();
     };
   }, []);
 
