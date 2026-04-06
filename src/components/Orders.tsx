@@ -11,43 +11,6 @@ import { OrderData, OrderItem, OrderStatus } from '../types';
 import { ChatModal } from './ChatModal';
 import { toast } from 'sonner';
 
-import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-
-// Fix for default marker icon in react-leaflet
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
-
-// Custom icons for the map
-const restaurantIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-
-const userIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-
-const driverIcon = new L.Icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854878.png',
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
-
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'restaurant';
@@ -77,9 +40,23 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     // Combine fetched orders and demo orders, removing duplicates by ID
     const combined = [...orders, ...demoOrders];
     const unique = Array.from(new Map(combined.map(o => [o.id, o])).values());
+    
     return unique.sort((a, b) => {
-      const timeA = a.createdAt?.toMillis?.() || (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 0);
-      const timeB = b.createdAt?.toMillis?.() || (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 0);
+      // Robust time extraction
+      const getTime = (order: OrderData) => {
+        if (!order.createdAt) return Date.now() + 10000; // Future for pending
+        if (order.createdAt.toMillis) return order.createdAt.toMillis();
+        if (order.createdAt.toDate) return order.createdAt.toDate().getTime();
+        if (typeof order.createdAt === 'string') return new Date(order.createdAt).getTime();
+        if (typeof order.createdAt === 'number') return order.createdAt;
+        return 0;
+      };
+
+      const timeA = getTime(a);
+      const timeB = getTime(b);
+      
+      // If times are equal (or both 0), sort by ID to be stable
+      if (timeA === timeB) return b.id.localeCompare(a.id);
       return timeB - timeA;
     });
   }, [orders, demoOrders]);
@@ -87,7 +64,7 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
   // Helper to check if a restaurant is a sample one
   const isSampleRestaurant = (restaurantId?: string, restaurantName?: string, ownerId?: string) => {
     // If no ownerId, it's definitely a sample/system restaurant
-    if (!ownerId && restaurantId && !/^uuid/i.test(restaurantId)) return true;
+    if (!ownerId) return true;
     
     // Check by ID pattern (r1, r2, etc.)
     const isSampleId = restaurantId && /^r\d+$/.test(restaurantId);
@@ -97,13 +74,17 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
       'Sakura Sushi House', 'Firewood Pizza Co.', 'The Halal Grill', 
       'Green Bowl Vegan', 'Smash & Grab Burgers', 'Midnight Cravings Desserts',
       'Sip & Chill Beverages', 'The Juice Lab', 'Boba Bliss', 'Pizza Hut Pavilion KL',
-      'Midnight Cravings'
+      'Midnight Cravings', 'The Burger Joint', 'Taco Bell', 'KFC', 'McDonald\'s',
+      'Starbucks', 'Subway', 'Domino\'s', 'Pizza Hut'
     ];
     const isSampleName = restaurantName && sampleNames.some(name => 
       restaurantName.toLowerCase().includes(name.toLowerCase())
     );
     
-    return isSampleId || isSampleName || !ownerId;
+    // If it's a demo order ID
+    const isDemoId = restaurantId?.startsWith('demo_') || restaurantId?.startsWith('ord_');
+    
+    return isSampleId || isSampleName || isDemoId;
   };
 
   // Performance tracking
@@ -222,43 +203,6 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     return allOrders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || allOrders[0];
   }, [allOrders, selectedOrderId]);
   
-  const [driverPos, setDriverPos] = useState<[number, number] | null>(null);
-
-  // Simulate driver movement when order is on the way
-  useEffect(() => {
-    if (activeOrder?.status === 'on_the_way' && activeOrder.restaurantLat && activeOrder.deliveryLat) {
-      const start: [number, number] = [activeOrder.restaurantLat, activeOrder.restaurantLng || 0];
-      const end: [number, number] = [activeOrder.deliveryLat, activeOrder.deliveryLng || 0];
-      
-      // Initial position
-      setDriverPos(start);
-
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += 0.01;
-        if (progress > 1) progress = 1;
-        
-        const lat = start[0] + (end[0] - start[0]) * progress;
-        const lng = start[1] + (end[1] - start[1]) * progress;
-        setDriverPos([lat, lng]);
-
-        if (progress >= 1) clearInterval(interval);
-      }, 2000);
-
-      return () => clearInterval(interval);
-    } else {
-      setDriverPos(null);
-    }
-  }, [activeOrder?.id, activeOrder?.status]);
-
-  function MapUpdater({ center }: { center: [number, number] }) {
-    const map = useMap();
-    useEffect(() => {
-      map.flyTo(center, 14);
-    }, [center, map]);
-    return null;
-  }
-
   const isOrderActive = useMemo(() => activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled', [activeOrder]);
 
   // Real-time Chat Listener
@@ -417,7 +361,10 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     
     const isSample = isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName, activeOrder.restaurantOwnerId);
     
-    if (!isSample) return;
+    if (!isSample) {
+      console.log('Not a sample restaurant, skipping auto-progression', activeOrder.restaurantName);
+      return;
+    }
 
     const statusOrder = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'];
     const currentIndex = statusOrder.indexOf(activeOrder.status);
@@ -430,6 +377,8 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     // Fast progression for sample restaurants to keep user engaged
     // 3s for pending -> confirmed, 5s for others
     const delay = activeOrder.status === 'pending' ? 3000 : 5000;
+
+    console.log(`Setting timer for auto-progression: ${activeOrder.status} -> ${nextStatus} in ${delay}ms`);
 
     const timer = setTimeout(async () => {
       try {
@@ -457,7 +406,19 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
       }
     }, delay);
 
-    return () => clearTimeout(timer);
+    // Visibility change listener to handle mobile backgrounding
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('App became visible, checking order status...');
+        // The effect will naturally re-run if needed
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [user, activeOrder?.id, activeOrder?.status, authType, isSimulating]);
 
   useEffect(() => {
@@ -539,10 +500,6 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
               total: o.total,
               status: o.status,
               deliveryAddress: o.delivery_address,
-              deliveryLat: o.delivery_lat,
-              deliveryLng: o.delivery_lng,
-              restaurantLat: o.restaurant_lat,
-              restaurantLng: o.restaurant_lng,
               estimatedDeliveryTime: o.estimated_delivery_time,
               createdAt: { 
                 toDate: () => new Date(o.created_at),
@@ -774,61 +731,37 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
               exit={{ opacity: 0, height: 0 }}
               className="mb-6 bg-black/40 rounded-3xl overflow-hidden border border-white/5"
             >
-              <div className="h-[400px] relative z-0">
-                {activeOrder.deliveryLat && activeOrder.restaurantLat ? (
-                  <MapContainer 
-                    center={[activeOrder.restaurantLat, activeOrder.restaurantLng || 0]} 
-                    zoom={13} 
-                    style={{ height: '100%', width: '100%' }}
-                    zoomControl={false}
-                  >
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    
-                    <Marker 
-                      position={[activeOrder.restaurantLat, activeOrder.restaurantLng || 0]} 
-                      icon={restaurantIcon}
-                    />
-                    
-                    <Marker 
-                      position={[activeOrder.deliveryLat, activeOrder.deliveryLng || 0]} 
-                      icon={userIcon}
-                    />
-
-                    {driverPos && (
-                      <>
-                        <Marker position={driverPos} icon={driverIcon} />
-                        <Polyline 
-                          positions={[
-                            [activeOrder.restaurantLat, activeOrder.restaurantLng || 0],
-                            driverPos
-                          ]} 
-                          color="#F27D26" 
-                          dashArray="5, 10"
-                        />
-                        <MapUpdater center={driverPos} />
-                      </>
-                    )}
-
-                    <Polyline 
-                      positions={[
-                        [activeOrder.restaurantLat, activeOrder.restaurantLng || 0],
-                        [activeOrder.deliveryLat, activeOrder.deliveryLng || 0]
-                      ]} 
-                      color="white" 
-                      opacity={0.2}
-                      dashArray="5, 10"
-                    />
-                  </MapContainer>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center bg-white/5 text-white/40 p-8 text-center">
-                    <AlertCircle size={48} className="mb-4 opacity-20" />
-                    <p className="font-bold">Map coordinates not available</p>
-                    <p className="text-sm">This order was placed before map integration was enabled.</p>
+              <div className="h-[300px] relative p-4">
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10" />
+                
+                <div className="absolute top-[20%] left-[80%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
+                  <div className="p-2 bg-primary rounded-full shadow-lg shadow-primary/20">
+                    <MapPin size={20} className="text-white" />
                   </div>
-                )}
+                  <span className="text-[10px] font-bold mt-1 text-white/60">Restaurant</span>
+                </div>
+
+                <div className="absolute top-[80%] left-[20%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
+                  <div className="p-2 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/20">
+                    <MapPin size={20} className="text-white" />
+                  </div>
+                  <span className="text-[10px] font-bold mt-1 text-white/60">You</span>
+                </div>
+
+                <motion.div 
+                  animate={getMapPosition(activeOrder.status)}
+                  transition={{ duration: 2, ease: "easeInOut" }}
+                  className="absolute z-10 flex flex-col items-center"
+                >
+                  <div className="p-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/20 animate-bounce">
+                    <Navigation size={20} className="text-white transform rotate-45" />
+                  </div>
+                  <span className="text-[10px] font-bold mt-1 text-blue-400">Order</span>
+                </motion.div>
+
+                <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
+                  <line x1="20%" y1="80%" x2="80%" y2="20%" stroke="white" strokeWidth="2" strokeDasharray="5,5" />
+                </svg>
               </div>
               <div className="p-4 bg-white/5 border-t border-white/5 flex justify-between items-center">
                 <div className="flex items-center gap-3">
