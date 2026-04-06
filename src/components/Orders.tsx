@@ -11,6 +11,43 @@ import { OrderData, OrderItem, OrderStatus } from '../types';
 import { ChatModal } from './ChatModal';
 import { toast } from 'sonner';
 
+import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for default marker icon in react-leaflet
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+// Custom icons for the map
+const restaurantIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const userIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const driverIcon = new L.Icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854878.png',
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'restaurant';
@@ -185,6 +222,43 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     return allOrders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || allOrders[0];
   }, [allOrders, selectedOrderId]);
   
+  const [driverPos, setDriverPos] = useState<[number, number] | null>(null);
+
+  // Simulate driver movement when order is on the way
+  useEffect(() => {
+    if (activeOrder?.status === 'on_the_way' && activeOrder.restaurantLat && activeOrder.deliveryLat) {
+      const start: [number, number] = [activeOrder.restaurantLat, activeOrder.restaurantLng || 0];
+      const end: [number, number] = [activeOrder.deliveryLat, activeOrder.deliveryLng || 0];
+      
+      // Initial position
+      setDriverPos(start);
+
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += 0.01;
+        if (progress > 1) progress = 1;
+        
+        const lat = start[0] + (end[0] - start[0]) * progress;
+        const lng = start[1] + (end[1] - start[1]) * progress;
+        setDriverPos([lat, lng]);
+
+        if (progress >= 1) clearInterval(interval);
+      }, 2000);
+
+      return () => clearInterval(interval);
+    } else {
+      setDriverPos(null);
+    }
+  }, [activeOrder?.id, activeOrder?.status]);
+
+  function MapUpdater({ center }: { center: [number, number] }) {
+    const map = useMap();
+    useEffect(() => {
+      map.flyTo(center, 14);
+    }, [center, map]);
+    return null;
+  }
+
   const isOrderActive = useMemo(() => activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled', [activeOrder]);
 
   // Real-time Chat Listener
@@ -465,6 +539,10 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
               total: o.total,
               status: o.status,
               deliveryAddress: o.delivery_address,
+              deliveryLat: o.delivery_lat,
+              deliveryLng: o.delivery_lng,
+              restaurantLat: o.restaurant_lat,
+              restaurantLng: o.restaurant_lng,
               estimatedDeliveryTime: o.estimated_delivery_time,
               createdAt: { 
                 toDate: () => new Date(o.created_at),
@@ -696,37 +774,61 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
               exit={{ opacity: 0, height: 0 }}
               className="mb-6 bg-black/40 rounded-3xl overflow-hidden border border-white/5"
             >
-              <div className="h-[300px] relative p-4">
-                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10" />
-                
-                <div className="absolute top-[20%] left-[80%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                  <div className="p-2 bg-primary rounded-full shadow-lg shadow-primary/20">
-                    <MapPin size={20} className="text-white" />
-                  </div>
-                  <span className="text-[10px] font-bold mt-1 text-white/60">Restaurant</span>
-                </div>
+              <div className="h-[400px] relative z-0">
+                {activeOrder.deliveryLat && activeOrder.restaurantLat ? (
+                  <MapContainer 
+                    center={[activeOrder.restaurantLat, activeOrder.restaurantLng || 0]} 
+                    zoom={13} 
+                    style={{ height: '100%', width: '100%' }}
+                    zoomControl={false}
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    
+                    <Marker 
+                      position={[activeOrder.restaurantLat, activeOrder.restaurantLng || 0]} 
+                      icon={restaurantIcon}
+                    />
+                    
+                    <Marker 
+                      position={[activeOrder.deliveryLat, activeOrder.deliveryLng || 0]} 
+                      icon={userIcon}
+                    />
 
-                <div className="absolute top-[80%] left-[20%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                  <div className="p-2 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/20">
-                    <MapPin size={20} className="text-white" />
-                  </div>
-                  <span className="text-[10px] font-bold mt-1 text-white/60">You</span>
-                </div>
+                    {driverPos && (
+                      <>
+                        <Marker position={driverPos} icon={driverIcon} />
+                        <Polyline 
+                          positions={[
+                            [activeOrder.restaurantLat, activeOrder.restaurantLng || 0],
+                            driverPos
+                          ]} 
+                          color="#F27D26" 
+                          dashArray="5, 10"
+                        />
+                        <MapUpdater center={driverPos} />
+                      </>
+                    )}
 
-                <motion.div 
-                  animate={getMapPosition(activeOrder.status)}
-                  transition={{ duration: 2, ease: "easeInOut" }}
-                  className="absolute z-10 flex flex-col items-center"
-                >
-                  <div className="p-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/20 animate-bounce">
-                    <Navigation size={20} className="text-white transform rotate-45" />
+                    <Polyline 
+                      positions={[
+                        [activeOrder.restaurantLat, activeOrder.restaurantLng || 0],
+                        [activeOrder.deliveryLat, activeOrder.deliveryLng || 0]
+                      ]} 
+                      color="white" 
+                      opacity={0.2}
+                      dashArray="5, 10"
+                    />
+                  </MapContainer>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center bg-white/5 text-white/40 p-8 text-center">
+                    <AlertCircle size={48} className="mb-4 opacity-20" />
+                    <p className="font-bold">Map coordinates not available</p>
+                    <p className="text-sm">This order was placed before map integration was enabled.</p>
                   </div>
-                  <span className="text-[10px] font-bold mt-1 text-blue-400">Order</span>
-                </motion.div>
-
-                <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
-                  <line x1="20%" y1="80%" x2="80%" y2="20%" stroke="white" strokeWidth="2" strokeDasharray="5,5" />
-                </svg>
+                )}
               </div>
               <div className="p-4 bg-white/5 border-t border-white/5 flex justify-between items-center">
                 <div className="flex items-center gap-3">

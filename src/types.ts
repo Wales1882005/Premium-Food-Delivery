@@ -77,6 +77,10 @@ export interface OrderData {
   items: string; // JSON string of OrderItem[]
   userId?: string;
   deliveryAddress?: string;
+  deliveryLat?: number;
+  deliveryLng?: number;
+  restaurantLat?: number;
+  restaurantLng?: number;
   estimatedDeliveryTime?: any;
 }
 

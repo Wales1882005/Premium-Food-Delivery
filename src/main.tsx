@@ -1,37 +1,31 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
-import './index.css';
-
-const rootElement = document.getElementById('root');
-
-if (!rootElement) {
-  throw new Error('Failed to find the root element');
-}
-
 // Global error handler for top-level crashes
 const showError = (error: any) => {
   if (!error) return;
   
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  const errorStack = error instanceof Error ? error.stack : '';
+  const errorMessage = (error instanceof Error ? error.message : String(error)) || '';
+  const errorStack = (error instanceof Error ? error.stack : '') || '';
 
   // Filter out noisy, non-fatal errors that shouldn't block the app
   const noisyErrors = [
-    'WebSocket closed without opened',
-    'failed to connect to websocket',
-    'ResizeObserver loop limit exceeded',
-    'Script error.',
-    'NetworkError when attempting to fetch resource',
-    'createWebSocketModuleRunnerTransport'
+    'websocket',
+    'resizeobserver',
+    'script error',
+    'networkerror',
+    'createwebsocketmodulerunnertransport',
+    'hmr',
+    'socket'
   ];
 
-  if (noisyErrors.some(noisy => errorMessage.includes(noisy) || (errorStack && errorStack.includes(noisy)))) {
+  const lowerMessage = errorMessage.toLowerCase();
+  const lowerStack = errorStack.toLowerCase();
+
+  if (noisyErrors.some(noisy => lowerMessage.includes(noisy) || lowerStack.includes(noisy))) {
     console.warn('Filtered noisy error:', errorMessage);
     return;
   }
 
   console.error('CRITICAL APP ERROR:', error);
+  const rootElement = document.getElementById('root');
   if (rootElement) {
     rootElement.innerHTML = `
       <div style="min-height: 100vh; background: #0A0A0B; color: white; display: flex; align-items: center; justify-content: center; padding: 24px; font-family: 'Inter', sans-serif; text-align: center;">
@@ -68,8 +62,20 @@ const showError = (error: any) => {
   }
 };
 
-window.addEventListener('error', (event) => showError(event.error));
+// Attach listeners immediately, before any imports
+window.addEventListener('error', (event) => showError(event.error || event.message));
 window.addEventListener('unhandledrejection', (event) => showError(event.reason));
+
+import {StrictMode} from 'react';
+import {createRoot} from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
+
+const rootElement = document.getElementById('root');
+
+if (!rootElement) {
+  throw new Error('Failed to find the root element');
+}
 
 try {
   createRoot(rootElement).render(
