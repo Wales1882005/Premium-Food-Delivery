@@ -760,8 +760,14 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
           <div className="w-24 h-24 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-8">
             <CheckCircle2 size={48} className="text-primary" />
           </div>
-          <h2 className="text-3xl font-bold">Order Confirmed!</h2>
-          <p className="text-white/60">Your food is being prepared and will be with you shortly.</p>
+          <h2 className="text-3xl font-bold">
+            {(!restaurant?.ownerId || restaurant?.id.startsWith('r')) ? 'Order Confirmed!' : 'Order Placed!'}
+          </h2>
+          <p className="text-white/60">
+            {(!restaurant?.ownerId || restaurant?.id.startsWith('r')) 
+              ? 'Your food is being prepared and will be with you shortly.' 
+              : 'Waiting for the restaurant to accept your order.'}
+          </p>
               <div className="bg-surface p-6 rounded-3xl border border-white/5 text-left mt-8">
                 <p className="text-sm text-white/50 mb-1">Order Total</p>
                 <div className="flex items-baseline gap-2 mb-6">

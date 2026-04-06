@@ -52,8 +52,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
              const userSnap = await getDoc(userRef);
              
              if (userSnap.exists()) {
-               setCravePoints(userSnap.data().cravePoints || 0);
-               setRole(userSnap.data().role || 'customer');
+               const data = userSnap.data();
+               setCravePoints(data.cravePoints || 0);
+               setRole(data.role || 'customer');
+               
+               // Ensure existing doc has all required fields for security rules
+               if (!data.role || data.cravePoints === undefined || !data.uid || !data.email) {
+                 console.log('Repairing user document missing required fields...');
+                 await setDoc(userRef, {
+                   uid: data.uid || currentUser.uid,
+                   email: data.email || currentUser.email || 'no-email@example.com',
+                   role: data.role || 'customer',
+                   cravePoints: data.cravePoints || 0,
+                   createdAt: data.createdAt || serverTimestamp(),
+                   displayName: data.displayName || currentUser.displayName || null,
+                   photoURL: data.photoURL || currentUser.photoURL || null
+                 }, { merge: true });
+               }
              } else {
                const newProfile: any = {
                  uid: currentUser.uid,

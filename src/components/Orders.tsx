@@ -82,7 +82,7 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     );
     
     // If it's a demo order ID
-    const isDemoId = restaurantId?.startsWith('demo_') || restaurantId?.startsWith('ord_');
+    const isDemoId = restaurantId?.startsWith('demo_') || restaurantId?.startsWith('ord_') || restaurantId?.startsWith('order_');
     
     return isSampleId || isSampleName || isDemoId;
   };
@@ -386,7 +386,7 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
         
         const updateData: any = {
           status: nextStatus,
-          estimatedDeliveryTime: nextStatus !== 'delivered' ? new Date(Date.now() + 15 * 60000).toISOString() : null
+          estimatedDeliveryTime: nextStatus !== 'delivered' ? new Date(Date.now() + 15 * 60000) : null
         };
 
         if (authType === 'firebase') {
@@ -666,7 +666,7 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
                 {activeOrder.status === 'delivered' && <CheckCircle2 className="text-green-500" size={20} />}
               </div>
               <p className="text-white/60 text-sm">Your order from {activeOrder.restaurantName}</p>
-              {activeOrder.status === 'pending' && !isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName) && (
+              {activeOrder.status === 'pending' && !isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName, activeOrder.restaurantOwnerId) && (
                 <p className="text-amber-400 text-[10px] font-bold uppercase tracking-wider mt-1 flex items-center gap-1">
                   <AlertCircle size={10} />
                   Waiting for Manual Approval
@@ -787,31 +787,43 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
             <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-white/10 before:to-transparent">
               {/* Status Steps */}
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['pending', 'confirmed'].includes(activeOrder.status) ? 'bg-primary' : 'bg-zinc-800 text-white/40'}`}>
-                  {['pending', 'confirmed'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : <CheckCircle2 size={20} />}
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['pending', 'confirmed'].includes(activeOrder.status) || ['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'bg-primary' : 'bg-zinc-800 text-white/40'}`}>
+                  {activeOrder.status === 'pending' ? (
+                    <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
+                  ) : (
+                    <CheckCircle2 size={20} />
+                  )}
                 </div>
-                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['pending', 'confirmed'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
-                  <h3 className={`font-bold ${['pending', 'confirmed'].includes(activeOrder.status) ? 'text-white' : 'text-primary'}`}>Order Confirmed</h3>
-                  <p className="text-sm text-white/60">The restaurant has accepted your order.</p>
+                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${activeOrder.status === 'pending' ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : (activeOrder.status === 'confirmed' ? 'bg-white/10 border-primary/30' : 'bg-white/5 border-white/10')}`}>
+                  <h3 className={`font-bold ${activeOrder.status === 'pending' ? 'text-white' : (activeOrder.status === 'confirmed' ? 'text-primary' : 'text-primary/60')}`}>
+                    {activeOrder.status === 'pending' ? 'Order Placed' : 'Order Confirmed'}
+                  </h3>
+                  <p className="text-sm text-white/60">
+                    {activeOrder.status === 'pending' ? 'Waiting for the restaurant to accept your order.' : 'The restaurant has accepted your order.'}
+                  </p>
                 </div>
               </div>
 
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'bg-primary' : (['pending', 'confirmed'].includes(activeOrder.status) ? 'bg-zinc-800 text-white/40' : 'bg-primary')}`}>
-                  {['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : (['pending', 'confirmed'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white/20" /> : <CheckCircle2 size={20} />)}
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'bg-primary' : (activeOrder.status === 'confirmed' ? 'bg-primary' : 'bg-zinc-800 text-white/40')}`}>
+                  {activeOrder.status === 'confirmed' ? (
+                    <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
+                  ) : (
+                    ['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? <CheckCircle2 size={20} /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />
+                  )}
                 </div>
-                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
-                  <h3 className={`font-bold ${['preparing', 'ready_for_pickup'].includes(activeOrder.status) ? 'text-white' : (['pending', 'confirmed'].includes(activeOrder.status) ? 'text-white/40' : 'text-primary')}`}>Preparing Food</h3>
+                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${activeOrder.status === 'confirmed' ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
+                  <h3 className={`font-bold ${activeOrder.status === 'confirmed' ? 'text-white' : (['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'text-primary' : 'text-white/40')}`}>Preparing Food</h3>
                   <p className="text-sm text-white/60">Your food is being prepared.</p>
                 </div>
               </div>
 
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'bg-primary text-white' : (activeOrder.status === 'delivered' ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40')}`}>
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['picked_up', 'on_the_way'].includes(activeOrder.status) || activeOrder.status === 'delivered' ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40'}`}>
                   {activeOrder.status === 'delivered' ? <CheckCircle2 size={20} /> : (['picked_up', 'on_the_way'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />)}
                 </div>
                 <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
-                  <h3 className={`font-bold ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'text-white' : (activeOrder.status === 'delivered' ? 'text-primary' : 'text-white/40')}`}>On the Way</h3>
+                  <h3 className={`font-bold ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'text-white' : (activeOrder.status === 'delivered' ? 'text-primary/60' : 'text-white/40')}`}>On the Way</h3>
                   <p className="text-sm text-white/60">Order is heading to your location.</p>
                 </div>
               </div>

@@ -197,17 +197,12 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
     }
   };
 
+  const isMobile = typeof window !== 'undefined' && !window.matchMedia("(pointer: fine)").matches;
+
   return (
     <div className="pb-[calc(6rem+env(safe-area-inset-bottom))] pt-8 px-6 max-w-5xl mx-auto space-y-10">
       {/* Hero & Search */}
-      <div style={{ perspective: "1000px" }}>
-        <motion.section 
-          initial={{ opacity: 0, y: 20, rotateX: 10 }}
-          animate={{ opacity: 1, y: 0, rotateX: 0 }}
-          whileHover={{ rotateX: 2, rotateY: -1 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="relative rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10"
-        >
+      <section className="relative rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10 z-10">
         {/* Appetizing Background */}
         <div className="absolute inset-0">
           <img 
@@ -239,18 +234,33 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
             </p>
           </div>
 
-          <div className="relative group max-w-md">
-            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-              <Search className="text-white/60 group-focus-within:text-primary transition-colors" size={20} />
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            className="flex flex-col sm:flex-row gap-3 max-w-md relative z-50"
+          >
+            <div className="relative flex-1 group">
+              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none z-50">
+                <Search className="text-white/60 group-focus-within:text-primary transition-colors" size={20} />
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search for restaurants..."
+                className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-12 pr-4 text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all backdrop-blur-md shadow-2xl relative z-50 cursor-text"
+              />
             </div>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for restaurants, dishes..."
-              className="w-full bg-white/10 border border-white/20 rounded-2xl py-4 pl-12 pr-4 text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all backdrop-blur-md shadow-2xl"
-            />
-          </div>
+            <button 
+              type="submit"
+              className="bg-primary text-white px-8 py-4 rounded-2xl font-bold hover:bg-primary-hover transition-all shadow-lg shadow-primary/20 whitespace-nowrap z-50 flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+            >
+              <Search size={18} />
+              Search
+            </button>
+          </form>
 
           {/* Dietary Filters */}
           <div className="flex flex-wrap gap-2 mt-4">
@@ -269,8 +279,7 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
             ))}
           </div>
         </div>
-      </motion.section>
-      </div>
+      </section>
 
       {/* Promotions Section */}
       {activePromotions.length > 0 && (

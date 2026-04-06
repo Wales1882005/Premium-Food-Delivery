@@ -109,17 +109,29 @@ export function Search({ onSelectRestaurant, favorites, toggleFavorite }: Search
       <div className="relative z-10 space-y-8">
         <h1 className="text-3xl font-bold">Search</h1>
         
-        <div className="relative">
-          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search for restaurants, dishes, or categories..."
-            className="w-full bg-surface/80 backdrop-blur-xl border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all shadow-xl"
-            autoFocus
-          />
-        </div>
+        <form 
+          onSubmit={(e) => e.preventDefault()}
+          className="flex flex-col sm:flex-row gap-3 relative z-50"
+        >
+          <div className="relative flex-1 group">
+            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 z-50 group-focus-within:text-primary transition-colors" size={20} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search for restaurants, dishes, or categories..."
+              className="w-full bg-surface/80 backdrop-blur-xl border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all shadow-xl relative z-50 cursor-text"
+              autoFocus
+            />
+          </div>
+          <button 
+            type="submit"
+            className="bg-primary text-white px-8 py-4 rounded-2xl font-bold hover:bg-primary-hover transition-all shadow-lg shadow-primary/20 whitespace-nowrap z-50 flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+          >
+            <SearchIcon size={18} />
+            Search
+          </button>
+        </form>
 
         {searchQuery.trim() ? (
           <div className="space-y-6">
