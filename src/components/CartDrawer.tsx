@@ -92,7 +92,7 @@ export function CartDrawer({ isOpen, onClose, cart, updateQuantity, onCheckout, 
             </div>
 
             {cart.length > 0 && (
-              <div className="p-6 border-t border-white/10 bg-surface/50 backdrop-blur-md">
+              <div className="p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] border-t border-white/10 bg-surface/50 backdrop-blur-md">
                 <div className="space-y-3 mb-6 text-sm">
                   <div className="flex justify-between text-white/70">
                     <span>Subtotal</span>

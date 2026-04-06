@@ -6,12 +6,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { supabase } from '../lib/supabase';
-import { CartItem, Restaurant, PaymentMethod } from '../types';
+import { CartItem, Restaurant, PaymentMethod, OrderData } from '../types';
 import { User as FirebaseUser } from 'firebase/auth';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 import { StripePayment } from './StripePayment';
+// OrderData import removed as it's now in types.ts
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -29,7 +30,7 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 
 interface CheckoutProps {
   key?: string;
   onBack: () => void;
-  onComplete: () => void;
+  onComplete: (demoOrder?: OrderData) => void;
   total: number;
   cart: CartItem[];
   restaurant: Restaurant | null;
@@ -44,6 +45,7 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
   const [paymentError, setPaymentError] = useState<string | null>(null);
   
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
+  const [demoOrder, setDemoOrder] = useState<OrderData | null>(null);
   
   const { user, authType, updateCravePoints, cravePoints } = useAuth();
   const [redeemPoints, setRedeemPoints] = useState(false);
@@ -53,6 +55,27 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [customAddress, setCustomAddress] = useState(address);
   const [isLocating, setIsLocating] = useState(false);
+  const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+
+  const searchAddress = async (query: string) => {
+    setCustomAddress(query);
+    if (query.length < 3) {
+      setAddressSuggestions([]);
+      return;
+    }
+    
+    setIsSearchingAddress(true);
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+      const data = await response.json();
+      setAddressSuggestions(data);
+    } catch (error) {
+      console.error("Error searching address:", error);
+    } finally {
+      setIsSearchingAddress(false);
+    }
+  };
 
   const getCurrentLocation = () => {
     setIsLocating(true);
@@ -102,8 +125,16 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
           setIsLocating(false);
         },
         (error) => {
-          console.error("Error getting location:", error);
-          toast.error("Could not get your location. Please check your permissions.");
+          console.error("Error getting location:", error.message || error);
+          let errorMessage = "Could not get your location.";
+          if (error.code === 1) {
+            errorMessage = "Location access denied. Please enable location permissions in your browser settings.";
+          } else if (error.code === 2) {
+            errorMessage = "Location information is unavailable.";
+          } else if (error.code === 3) {
+            errorMessage = "The request to get user location timed out.";
+          }
+          toast.error(errorMessage);
           setIsLocating(false);
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -113,11 +144,6 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
       setIsLocating(false);
     }
   };
-
-  useEffect(() => {
-    // Try to get location on mount
-    getCurrentLocation();
-  }, []);
 
   function LocationMarker() {
     const map = useMapEvents({
@@ -231,11 +257,6 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
   };
 
   const handlePaymentSuccess = async () => {
-    if (!user || !restaurant) {
-      setStep(3);
-      return;
-    }
-    
     setIsPlacingOrder(true);
     console.log('Starting order placement...', { 
       authType, 
@@ -243,18 +264,34 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
       userId: authType === 'firebase' ? (user as FirebaseUser)?.uid : (user as SupabaseUser)?.id 
     });
     
-    // Create a promise that rejects after 5 seconds
-    const timeout = (ms: number, dbName: string) => new Promise((_, reject) => 
-      setTimeout(() => reject(new Error(`Request to ${dbName} timed out after ${ms/1000}s`)), ms)
-    );
+    // Create a promise that rejects after a specified time
+    const timeout = (ms: number, dbName: string) => {
+      console.log(`Creating timeout for ${dbName} with ${ms}ms`);
+      let timer: any;
+      const promise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          console.error(`Timeout triggered for ${dbName} after ${ms}ms`);
+          reject(new Error(`Request to ${dbName} timed out after ${ms/1000}s`));
+        }, ms);
+      });
+      return { promise, clear: () => {
+        console.log(`Clearing timeout for ${dbName}`);
+        clearTimeout(timer);
+      } };
+    };
 
-    const placeOrderInDatabase = async () => {
+    const placeOrderInDatabase = async (): Promise<OrderData | null> => {
       try {
-        if (authType === 'firebase') {
+        // Determine initial status: sample restaurants (no ownerId or starts with 'r') are auto-confirmed
+        const isSampleRestaurant = !restaurant?.ownerId || restaurant?.id.startsWith('r');
+        const initialStatus = isSampleRestaurant ? 'confirmed' : 'pending';
+
+        if (authType === 'firebase' && user && restaurant) {
           const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           const orderRef = doc(db, 'orders', orderId);
           
-          console.log('Inserting into Firebase...', { orderId });
+          console.log('Inserting into Firebase...', { orderId, initialStatus });
+          const { promise: timeoutPromise, clear } = timeout(10000, 'Firebase');
           await Promise.race([
             setDoc(orderRef, {
               id: orderId,
@@ -270,120 +307,111 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
               paymentMethod: paymentMethod,
               discountApplied: discount,
               pointsRedeemed: pointsToRedeem,
-              status: 'pending',
+              status: initialStatus,
               deliveryAddress: address,
-              deliveryLat: position[0],
-              deliveryLng: position[1],
+              deliveryLat: position ? position[0] : 37.7749,
+              deliveryLng: position ? position[1] : -122.4194,
               restaurantLat: restaurant.lat || 37.7749,
               restaurantLng: restaurant.lng || -122.4194,
               createdAt: serverTimestamp()
             }),
-            timeout(5000, 'Firebase')
+            timeoutPromise
           ]);
+          clear();
           console.log('Firebase insert successful');
-        } else if (authType === 'supabase') {
-          console.log('Testing Supabase connection before insert...');
-          try {
-            const { error: testError } = await supabase.from('orders').select('id').limit(1);
-            if (testError) {
-              console.error('Supabase connection test failed:', testError);
-              if (testError.code === 'PGRST116' || testError.message.includes('relation "orders" does not exist')) {
-                toast.error('Database table "orders" is missing. Please run the SQL setup script.');
-                throw new Error('Table "orders" does not exist');
-              }
-            } else {
-              console.log('Supabase connection test successful');
-            }
-          } catch (testErr) {
-            console.error('Supabase connection test caught error:', testErr);
-          }
-
+          
+          // Update points
+          const pointsEarned = Math.floor(finalTotal * 10);
+          await updateCravePoints(pointsEarned - pointsToRedeem);
+          
+          return null;
+        } else if (authType === 'supabase' && user && restaurant) {
           console.log('Inserting into Supabase...', {
             userId: (user as SupabaseUser).id,
             restaurantId: restaurant.id,
-            finalTotal
+            finalTotal,
+            initialStatus
           });
           
-          const supabaseInsert = async () => {
+          const supabaseInsert = async (retryCount = 0): Promise<any> => {
+            const payload = {
+              user_id: (user as SupabaseUser).id,
+              restaurant_id: restaurant.id,
+              restaurant_name: restaurant.name,
+              restaurant_owner_id: restaurant.ownerId,
+              items: cart,
+              total: finalTotal,
+              subtotal: subtotal,
+              delivery_fee: deliveryFee,
+              service_fee: serviceFee,
+              payment_method: paymentMethod,
+              status: initialStatus,
+              delivery_address: address,
+              delivery_lat: position ? position[0] : 37.7749,
+              delivery_lng: position ? position[1] : -122.4194,
+              restaurant_lat: restaurant.lat || 37.7749,
+              restaurant_lng: restaurant.lng || -122.4194,
+              created_at: new Date().toISOString()
+            };
+            
             try {
-              const { data, error, status, statusText } = await supabase
-                .from('orders')
-                .insert({
-                  user_id: (user as SupabaseUser).id,
-                  restaurant_id: restaurant.id,
-                  restaurant_name: restaurant.name,
-                  restaurant_owner_id: restaurant.ownerId,
-                  items: JSON.stringify(cart),
-                  total: finalTotal,
-                  subtotal: subtotal,
-                  delivery_fee: deliveryFee,
-                  service_fee: serviceFee,
-                  payment_method: paymentMethod,
-                  status: 'pending',
-                  delivery_address: address,
-                  delivery_lat: position[0],
-                  delivery_lng: position[1],
-                  restaurant_lat: restaurant.lat || 37.7749,
-                  restaurant_lng: restaurant.lng || -122.4194,
-                })
-                .select();
-              
-              if (error) {
-                console.error('Supabase insert error details:', {
-                  error,
-                  status,
-                  statusText
-                });
-                throw error;
-              }
-              console.log('Supabase insert successful, returned data:', data);
+              const { data, error } = await supabase.from('orders').insert(payload);
+              if (error) throw error;
+              return data;
             } catch (err) {
-              console.error('Supabase insert caught error:', err);
+              if (retryCount < 2) {
+                await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
+                return supabaseInsert(retryCount + 1);
+              }
               throw err;
             }
           };
 
-          await Promise.race([supabaseInsert(), timeout(5000, 'Supabase')]);
-          console.log('Supabase insert successful');
-        }
-        
-        // Subtract redeemed points and add new points (10% of final total)
-        const pointsEarned = Math.floor(finalTotal * 10);
-        console.log('Updating points...', { pointsEarned, pointsToRedeem });
-        
-        try {
+          const { promise: timeoutPromise, clear } = timeout(300000, 'Supabase');
+          await Promise.race([supabaseInsert(), timeoutPromise]);
+          clear();
+          
+          // Update points
+          const pointsEarned = Math.floor(finalTotal * 10);
           await updateCravePoints(pointsEarned - pointsToRedeem);
-          console.log('Points updated successfully');
-        } catch (pError) {
-          console.error('Failed to update points, but continuing...', pError);
+          
+          return null;
+        } else if (isDemo && restaurant) {
+          // Return a mock OrderData for the demo session
+          return {
+            id: `demo_${Date.now()}`,
+            restaurantName: restaurant.name,
+            restaurantId: restaurant.id,
+            total: finalTotal,
+            status: initialStatus,
+            createdAt: { toDate: () => new Date(), toMillis: () => Date.now() },
+            items: JSON.stringify(cart),
+            deliveryAddress: address
+          };
         }
+        return null;
       } catch (error) {
         console.error('Order placement failed:', error);
         if (!isDemo) {
           if (authType === 'firebase') {
             handleFirestoreError(error, OperationType.CREATE, `orders`);
-          } else {
-            toast.error('Failed to place order. Please try again.');
           }
+          toast.error('Failed to place order. Please try again.');
+        } else {
+          toast.error('Failed to place demo order: ' + (error as Error).message);
         }
         throw error;
       }
     };
 
-    if (isDemo || paymentMethod === 'cod') {
-      // In demo mode or COD, proceed immediately and do database work in background
-      placeOrderInDatabase().catch(console.error);
+    try {
+      const order = await placeOrderInDatabase();
+      if (order) setDemoOrder(order);
       setStep(3);
+    } catch (error) {
+      // Error already handled in placeOrderInDatabase
+    } finally {
       setIsPlacingOrder(false);
-    } else {
-      try {
-        await placeOrderInDatabase();
-        setStep(3);
-      } catch (error) {
-        // Error already handled in placeOrderInDatabase
-      } finally {
-        setIsPlacingOrder(false);
-      }
     }
   };
 
@@ -394,7 +422,7 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
       exit={{ opacity: 0, y: -20 }}
       className="fixed inset-0 z-50 overflow-y-auto bg-background"
     >
-      <div className="min-h-screen pb-24 pt-safe px-6 max-w-2xl mx-auto">
+      <div className="min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] pt-safe px-6 max-w-2xl mx-auto">
         <div className="flex items-center gap-4 py-6 mb-6 border-b border-white/10">
           <button 
             onClick={onBack}
@@ -471,24 +499,51 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
               <div className="w-full pr-8">
                 <p className="font-bold mb-1">Selected Location</p>
                 {isEditingAddress ? (
-                  <div className="flex gap-2 mt-2">
-                    <input 
-                      type="text" 
-                      value={customAddress}
-                      onChange={(e) => setCustomAddress(e.target.value)}
-                      className="flex-1 bg-background border border-white/10 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
-                      placeholder="Enter full address"
-                      autoFocus
-                    />
-                    <button 
-                      onClick={() => {
-                        setAddress(customAddress);
-                        setIsEditingAddress(false);
-                      }}
-                      className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold"
-                    >
-                      Save
-                    </button>
+                  <div className="relative mt-2">
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={customAddress}
+                        onChange={(e) => searchAddress(e.target.value)}
+                        className="flex-1 bg-background border border-white/10 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                        placeholder="Enter full address"
+                        autoFocus
+                      />
+                      <button 
+                        onClick={() => {
+                          setAddress(customAddress);
+                          setIsEditingAddress(false);
+                          setAddressSuggestions([]);
+                        }}
+                        className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold"
+                      >
+                        Save
+                      </button>
+                    </div>
+                    {isSearchingAddress && (
+                      <div className="absolute z-[500] w-full mt-1 bg-surface border border-white/10 rounded-xl shadow-xl p-3 flex justify-center">
+                        <Loader2 size={16} className="animate-spin text-primary" />
+                      </div>
+                    )}
+                    {addressSuggestions.length > 0 && (
+                      <div className="absolute z-[500] w-full mt-1 bg-surface border border-white/10 rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto">
+                        {addressSuggestions.map((suggestion, idx) => (
+                          <button
+                            key={idx}
+                            className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 border-b border-white/5 last:border-0 transition-colors"
+                            onClick={() => {
+                              setCustomAddress(suggestion.display_name);
+                              setAddress(suggestion.display_name);
+                              setPosition([parseFloat(suggestion.lat), parseFloat(suggestion.lon)]);
+                              setAddressSuggestions([]);
+                              setIsEditingAddress(false);
+                            }}
+                          >
+                            {suggestion.display_name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div>
@@ -727,11 +782,11 @@ export function Checkout({ onBack, onComplete, total, cart, restaurant }: Checko
           )}
 
           {/* Bottom Action */}
-          <div className="fixed bottom-0 left-0 right-0 p-6 bg-background/80 backdrop-blur-xl border-t border-white/10 z-10">
+          <div className="fixed bottom-0 left-0 right-0 p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] bg-background/80 backdrop-blur-xl border-t border-white/10 z-10">
             <div className="max-w-2xl mx-auto flex gap-4">
               {step === 3 ? (
                 <button 
-                  onClick={onComplete}
+                  onClick={() => onComplete(demoOrder || undefined)}
                   className="w-full bg-primary hover:bg-primary-hover text-white py-4 rounded-2xl font-bold text-lg transition-colors"
                 >
                   Track Order

@@ -198,7 +198,7 @@ export function Home({ onSelectRestaurant, favorites, toggleFavorite, onOpenMatc
   };
 
   return (
-    <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-10">
+    <div className="pb-[calc(6rem+env(safe-area-inset-bottom))] pt-8 px-6 max-w-5xl mx-auto space-y-10">
       {/* Hero & Search */}
       <div style={{ perspective: "1000px" }}>
         <motion.section 

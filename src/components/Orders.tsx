@@ -7,27 +7,9 @@ import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, deleteD
 import { supabase } from '../lib/supabase';
 import { User as FirebaseUser } from 'firebase/auth';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import { OrderData, OrderItem, OrderStatus } from '../types';
 import { ChatModal } from './ChatModal';
 import { toast } from 'sonner';
-
-export interface OrderItem {
-  name: string;
-  price: number;
-  quantity: number;
-}
-
-export interface OrderData {
-  id: string;
-  restaurantName: string;
-  restaurantId?: string;
-  total: number;
-  status: string;
-  createdAt: any;
-  items: string; // JSON string of OrderItem[]
-  userId?: string;
-  deliveryAddress?: string;
-  estimatedDeliveryTime?: any;
-}
 
 export interface ChatMessage {
   id: string;
@@ -36,8 +18,12 @@ export interface ChatMessage {
   createdAt: any;
 }
 
-export function Orders() {
-  const { user, authType } = useAuth();
+interface OrdersProps {
+  demoOrders?: OrderData[];
+}
+
+export function Orders({ demoOrders = [] }: OrdersProps) {
+  const { user, authType, isAuthReady } = useAuth();
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -50,8 +36,22 @@ export function Orders() {
   const [reviewOrder, setReviewOrder] = useState<OrderData | null>(null);
   const [showMap, setShowMap] = useState<string | null>(null);
 
+  const allOrders = useMemo(() => {
+    // Combine fetched orders and demo orders, removing duplicates by ID
+    const combined = [...orders, ...demoOrders];
+    const unique = Array.from(new Map(combined.map(o => [o.id, o])).values());
+    return unique.sort((a, b) => {
+      const timeA = a.createdAt?.toMillis?.() || (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 0);
+      const timeB = b.createdAt?.toMillis?.() || (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 0);
+      return timeB - timeA;
+    });
+  }, [orders, demoOrders]);
+
   // Helper to check if a restaurant is a sample one
-  const isSampleRestaurant = (restaurantId?: string, restaurantName?: string) => {
+  const isSampleRestaurant = (restaurantId?: string, restaurantName?: string, ownerId?: string) => {
+    // If no ownerId, it's definitely a sample/system restaurant
+    if (!ownerId && restaurantId && !/^uuid/i.test(restaurantId)) return true;
+    
     // Check by ID pattern (r1, r2, etc.)
     const isSampleId = restaurantId && /^r\d+$/.test(restaurantId);
     
@@ -59,11 +59,14 @@ export function Orders() {
     const sampleNames = [
       'Sakura Sushi House', 'Firewood Pizza Co.', 'The Halal Grill', 
       'Green Bowl Vegan', 'Smash & Grab Burgers', 'Midnight Cravings Desserts',
-      'Sip & Chill Beverages', 'The Juice Lab', 'Boba Bliss', 'Pizza Hut Pavilion KL'
+      'Sip & Chill Beverages', 'The Juice Lab', 'Boba Bliss', 'Pizza Hut Pavilion KL',
+      'Midnight Cravings'
     ];
-    const isSampleName = restaurantName && sampleNames.includes(restaurantName);
+    const isSampleName = restaurantName && sampleNames.some(name => 
+      restaurantName.toLowerCase().includes(name.toLowerCase())
+    );
     
-    return isSampleId || isSampleName;
+    return isSampleId || isSampleName || !ownerId;
   };
 
   // Performance tracking
@@ -105,8 +108,11 @@ export function Orders() {
   };
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setRefreshTrigger(prev => prev + 1);
     setTimeout(() => setIsRefreshing(false), 1000);
   };
 
@@ -173,32 +179,69 @@ export function Orders() {
 
   const activeOrder = useMemo(() => {
     if (selectedOrderId) {
-      const found = orders.find(o => o.id === selectedOrderId);
+      const found = allOrders.find(o => o.id === selectedOrderId);
       if (found) return found;
     }
-    return orders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || orders[0];
-  }, [orders, selectedOrderId]);
+    return allOrders.find(o => o.status !== 'delivered' && o.status !== 'cancelled') || allOrders[0];
+  }, [allOrders, selectedOrderId]);
   
   const isOrderActive = useMemo(() => activeOrder && activeOrder.status !== 'delivered' && activeOrder.status !== 'cancelled', [activeOrder]);
 
   // Real-time Chat Listener
   useEffect(() => {
-    if (!user || !activeOrder || !showChat || authType !== 'firebase') return;
+    if (!user || !activeOrder || !showChat) return;
 
-    const q = query(
-      collection(db, 'orders', activeOrder.id, 'messages'),
-      orderBy('createdAt', 'asc')
-    );
+    if (authType === 'firebase') {
+      const q = query(
+        collection(db, 'orders', activeOrder.id, 'messages'),
+        orderBy('createdAt', 'asc')
+      );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as ChatMessage[];
-      setChatHistory(messages);
-    });
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const messages = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as ChatMessage[];
+        setChatHistory(messages);
+      });
 
-    return () => unsubscribe();
+      return () => unsubscribe();
+    } else if (authType === 'supabase') {
+      const fetchMessages = async () => {
+        const { data, error } = await supabase
+          .from('order_messages')
+          .select('*')
+          .eq('order_id', activeOrder.id)
+          .order('created_at', { ascending: true });
+        
+        if (!error && data) {
+          setChatHistory(data.map(m => ({
+            id: m.id,
+            sender: m.sender,
+            text: m.text,
+            createdAt: { toDate: () => new Date(m.created_at) }
+          })));
+        }
+      };
+
+      fetchMessages();
+
+      const channel = supabase
+        .channel(`order-chat-${activeOrder.id}`)
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'order_messages', 
+          filter: `order_id=eq.${activeOrder.id}` 
+        }, () => {
+          fetchMessages();
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [user, activeOrder?.id, showChat, authType]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -225,8 +268,37 @@ export function Orders() {
           });
         }, 2000);
       } else {
-        // Supabase chat logic could go here
-        toast.info('Chat is currently only available for Firebase users');
+        // Supabase chat logic
+        const { error } = await supabase
+          .from('order_messages')
+          .insert({
+            order_id: activeOrder.id,
+            sender: 'user',
+            text,
+            created_at: new Date().toISOString()
+          });
+
+        if (error) {
+          console.error('Supabase chat error:', error);
+          // Fallback if table doesn't exist
+          if (error.code === 'PGRST116' || error.message.includes('relation "order_messages" does not exist')) {
+            toast.info('Chat is currently only available for Firebase users');
+            return;
+          }
+          throw error;
+        }
+
+        // Mock restaurant response for Supabase
+        setTimeout(async () => {
+          await supabase
+            .from('order_messages')
+            .insert({
+              order_id: activeOrder.id,
+              sender: 'restaurant',
+              text: 'Got it! We are preparing your order.',
+              created_at: new Date().toISOString()
+            });
+        }, 2000);
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -269,18 +341,8 @@ export function Orders() {
   useEffect(() => {
     if (!user || !activeOrder || isSimulating) return;
     
-    const isSample = isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName);
+    const isSample = isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName, activeOrder.restaurantOwnerId);
     
-    // Debug log to help identify why it might not be progressing
-    console.log('Order Tracking Check:', {
-      orderId: activeOrder.id,
-      restaurant: activeOrder.restaurantName,
-      restaurantId: activeOrder.restaurantId,
-      isSample,
-      status: activeOrder.status,
-      authType
-    });
-
     if (!isSample) return;
 
     const statusOrder = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'];
@@ -291,24 +353,28 @@ export function Orders() {
     const nextStatus = statusOrder[currentIndex + 1];
     if (!nextStatus) return;
 
-    // Faster progression for sample restaurants
-    const delay = activeOrder.status === 'pending' ? 2000 : 7000;
+    // Fast progression for sample restaurants to keep user engaged
+    // 3s for pending -> confirmed, 5s for others
+    const delay = activeOrder.status === 'pending' ? 3000 : 5000;
 
     const timer = setTimeout(async () => {
       try {
-        console.log(`Auto-progressing order ${activeOrder.id} to ${nextStatus}`);
+        console.log(`Auto-progressing order ${activeOrder.id} from ${activeOrder.status} to ${nextStatus}`);
+        
+        const updateData: any = {
+          status: nextStatus,
+          estimatedDeliveryTime: nextStatus !== 'delivered' ? new Date(Date.now() + 15 * 60000).toISOString() : null
+        };
+
         if (authType === 'firebase') {
           const orderRef = doc(db, 'orders', activeOrder.id);
-          await updateDoc(orderRef, {
-            status: nextStatus,
-            estimatedDeliveryTime: nextStatus !== 'delivered' ? new Date(Date.now() + 15 * 60000).toISOString() : null
-          });
+          await updateDoc(orderRef, updateData);
         } else {
           await supabase
             .from('orders')
             .update({ 
               status: nextStatus,
-              estimated_delivery_time: nextStatus !== 'delivered' ? new Date(Date.now() + 15 * 60000).toISOString() : null
+              estimated_delivery_time: updateData.estimatedDeliveryTime
             })
             .eq('id', activeOrder.id);
         }
@@ -326,41 +392,58 @@ export function Orders() {
       return;
     }
 
+    setLoading(true);
+
     let unsubscribeFirebase: (() => void) | undefined;
     let unsubscribeSupabase: (() => void) | undefined;
+    
+    // Safety timeout to prevent infinite loading
+    const loadingTimeout = setTimeout(() => {
+      setLoading(false);
+      console.warn("Orders fetch timed out, forcing loading to false");
+    }, 60000);
+
+    const clearAndSetLoadingFalse = () => {
+      setLoading(false);
+      clearTimeout(loadingTimeout);
+    };
 
     if (authType === 'firebase') {
-      const q = query(
-        collection(db, 'orders'),
-        where('userId', '==', (user as FirebaseUser).uid),
-        limit(20)
-      );
+      try {
+        const q = query(
+          collection(db, 'orders'),
+          where('userId', '==', (user as FirebaseUser).uid),
+          limit(20)
+        );
 
-      unsubscribeFirebase = onSnapshot(q, (snapshot) => {
-        const fetchedOrders = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as OrderData[];
-        
-        // Sort client-side to avoid requiring a composite index
-        fetchedOrders.sort((a, b) => {
-          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
-          return timeB - timeA;
+        unsubscribeFirebase = onSnapshot(q, (snapshot) => {
+          const fetchedOrders = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as OrderData[];
+          
+          // Sort client-side to avoid requiring a composite index
+          fetchedOrders.sort((a, b) => {
+            const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return timeB - timeA;
+          });
+          
+          setOrders(fetchedOrders);
+          clearAndSetLoadingFalse();
+        }, (error) => {
+          console.error("Error fetching orders:", error);
+          clearAndSetLoadingFalse();
+          try {
+            handleFirestoreError(error, OperationType.LIST, 'orders');
+          } catch (e) {
+            // Error is already logged, prevent crash
+          }
         });
-        
-        setOrders(fetchedOrders);
-        setLoading(false);
-        console.timeEnd('OrdersFetch');
-      }, (error) => {
-        console.error("Error fetching orders:", error);
-        setLoading(false);
-        try {
-          handleFirestoreError(error, OperationType.LIST, 'orders');
-        } catch (e) {
-          // Error is already logged, prevent crash
-        }
-      });
+      } catch (error) {
+        console.error("Error setting up Firebase listener:", error);
+        clearAndSetLoadingFalse();
+      }
     } else if (authType === 'supabase') {
       const fetchSupabaseOrders = async () => {
         try {
@@ -377,16 +460,23 @@ export function Orders() {
             setOrders(data.map(o => ({
               id: o.id,
               restaurantName: o.restaurant_name,
+              restaurantId: o.restaurant_id,
+              restaurantOwnerId: o.restaurant_owner_id,
               total: o.total,
               status: o.status,
-              createdAt: { toDate: () => new Date(o.created_at) },
-              items: JSON.stringify(o.items)
+              deliveryAddress: o.delivery_address,
+              estimatedDeliveryTime: o.estimated_delivery_time,
+              createdAt: { 
+                toDate: () => new Date(o.created_at),
+                toMillis: () => new Date(o.created_at).getTime()
+              },
+              items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items)
             })) as OrderData[]);
           }
         } catch (err) {
           console.error('Supabase orders fetch error:', err);
         } finally {
-          setLoading(false);
+          clearAndSetLoadingFalse();
         }
       };
 
@@ -402,13 +492,16 @@ export function Orders() {
       unsubscribeSupabase = () => {
         supabase.removeChannel(channel);
       };
+    } else {
+      setLoading(false);
     }
 
     return () => {
+      clearTimeout(loadingTimeout);
       if (unsubscribeFirebase) unsubscribeFirebase();
       if (unsubscribeSupabase) unsubscribeSupabase();
     };
-  }, [user, authType]);
+  }, [user, authType, refreshTrigger]);
 
   // Removed local simulation useEffect as we now use real DB updates
 
@@ -424,24 +517,34 @@ export function Orders() {
     }
   };
 
-  if (loading) {
+  if (!isAuthReady || loading) {
     return (
-      <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto flex justify-center items-center h-[60vh]">
+      <div className="pb-[calc(6rem+env(safe-area-inset-bottom))] pt-8 px-6 max-w-5xl mx-auto flex justify-center items-center h-[60vh]">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  if (!user || orders.length === 0) {
+  console.log('Orders component state:', { user: !!user, authType, ordersCount: orders.length });
+
+  if (allOrders.length === 0) {
     return (
-      <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8 flex flex-col items-center justify-center min-h-[60vh]">
+      <div className="pb-[calc(6rem+env(safe-area-inset-bottom))] pt-8 px-6 max-w-5xl mx-auto space-y-8 flex flex-col items-center justify-center min-h-[60vh]">
         <div className="w-24 h-24 bg-surface rounded-full flex items-center justify-center mb-4 border border-white/10">
           <Package size={40} className="text-white/40" />
         </div>
         <h1 className="text-3xl font-bold text-center">No Orders Yet</h1>
         <p className="text-white/60 text-center max-w-md">
-          {user ? "You haven't placed any orders yet. Time to explore some delicious food!" : "Sign in to view your active and past orders."}
+          {user ? "You haven't placed any orders yet. Time to explore some delicious food!" : "Sign in to view your active and past orders, or place a demo order to see it here."}
         </p>
+        {!user && (
+          <button 
+            onClick={() => window.location.href = '#profile'}
+            className="mt-4 px-6 py-3 bg-primary text-white rounded-2xl font-bold hover:bg-primary-hover transition-colors"
+          >
+            Sign In Now
+          </button>
+        )}
       </div>
     );
   }
@@ -468,7 +571,7 @@ export function Orders() {
   };
 
   return (
-    <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8">
+    <div className="pb-[calc(6rem+env(safe-area-inset-bottom))] pt-8 px-6 max-w-5xl mx-auto space-y-8">
       <div className="flex justify-between items-end">
         <h1 className="text-3xl font-bold">{isOrderActive ? 'Active Order' : 'Recent Order'}</h1>
         <div className="flex items-center gap-3">
@@ -528,7 +631,7 @@ export function Orders() {
                 {activeOrder.status === 'delivered' && <CheckCircle2 className="text-green-500" size={20} />}
               </div>
               <p className="text-white/60 text-sm">Your order from {activeOrder.restaurantName}</p>
-              {activeOrder.status === 'pending' && !isSampleRestaurant(activeOrder.restaurantId) && (
+              {activeOrder.status === 'pending' && !isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName) && (
                 <p className="text-amber-400 text-[10px] font-bold uppercase tracking-wider mt-1 flex items-center gap-1">
                   <AlertCircle size={10} />
                   Waiting for Manual Approval
@@ -717,11 +820,11 @@ export function Orders() {
         </div>
       </div>
       
-      {orders.length > 1 && (
+      {allOrders.length > 1 && (
         <div className="mt-12 space-y-4">
           <h2 className="text-2xl font-bold">Order History</h2>
           <div className="space-y-4">
-            {orders.filter(o => o.id !== activeOrder?.id).map(order => (
+            {allOrders.filter(o => o.id !== activeOrder?.id).map(order => (
               <div key={order.id} className="bg-surface p-5 rounded-3xl border border-white/5 space-y-4">
                 <div className="flex justify-between items-start">
                   <div className="flex gap-4">

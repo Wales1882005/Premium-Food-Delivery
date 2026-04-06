@@ -95,7 +95,7 @@ export function RestaurantMenu({ restaurant, onBack, onAddToCart, isFavorite, on
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
-      className="fixed inset-0 z-50 overflow-y-auto bg-background pb-24"
+      className="fixed inset-0 z-50 overflow-y-auto bg-background pb-[calc(6rem+env(safe-area-inset-bottom))]"
     >
       {/* Sticky Back Button */}
       <div className="fixed top-4 left-4 z-50">

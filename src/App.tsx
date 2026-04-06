@@ -18,7 +18,7 @@ import { Profile } from './components/Profile';
 import { AIMatchmaker } from './components/AIMatchmaker';
 import { SuggestionModal } from './components/SuggestionModal';
 import { RestaurantOnboarding } from './components/RestaurantOnboarding';
-import { Restaurant, MenuItem, CartItem } from './types';
+import { Restaurant, MenuItem, CartItem, OrderData } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -27,6 +27,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('home');
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartRestaurant, setCartRestaurant] = useState<Restaurant | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckout, setIsCheckout] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -45,6 +46,18 @@ function AppContent() {
   };
 
   const handleAddToCart = (item: MenuItem) => {
+    // If adding from a different restaurant, clear the cart first
+    if (cart.length > 0 && cartRestaurant && selectedRestaurant && cartRestaurant.id !== selectedRestaurant.id) {
+      if (!window.confirm(`You have items from ${cartRestaurant.name} in your cart. Do you want to clear it and start a new order from ${selectedRestaurant.name}?`)) {
+        return;
+      }
+      setCart([]);
+    }
+    
+    if (selectedRestaurant) {
+      setCartRestaurant(selectedRestaurant);
+    }
+
     setCart(prev => {
       const existing = prev.find(i => i.id === item.id);
       if (existing) {
@@ -58,6 +71,7 @@ function AppContent() {
 
   const handleReorder = (items: CartItem[], restaurant: Restaurant) => {
     setCart(items);
+    setCartRestaurant(restaurant);
     setSelectedRestaurant(restaurant);
     setIsCartOpen(true);
     toast.success(`Reordering from ${restaurant.name}!`);
@@ -82,8 +96,14 @@ function AppContent() {
     setIsCheckout(true);
   };
 
-  const handleCompleteOrder = () => {
+  const [demoOrders, setDemoOrders] = useState<OrderData[]>([]);
+
+  const handleCompleteOrder = (demoOrder?: OrderData) => {
+    if (demoOrder) {
+      setDemoOrders(prev => [demoOrder, ...prev]);
+    }
     setCart([]);
+    setCartRestaurant(null);
     setIsCheckout(false);
     setSelectedRestaurant(null);
     setActiveTab('orders');
@@ -124,7 +144,7 @@ function AppContent() {
             toggleFavorite={toggleFavorite}
           />
         )}
-        {activeTab === 'orders' && <Orders />}
+        {activeTab === 'orders' && <Orders demoOrders={demoOrders} />}
         {activeTab === 'profile' && (
           <Profile 
             favorites={favorites}
@@ -146,7 +166,7 @@ function AppContent() {
             onComplete={handleCompleteOrder}
             total={total}
             cart={cart}
-            restaurant={selectedRestaurant}
+            restaurant={cartRestaurant}
           />
         )}
         
@@ -209,7 +229,7 @@ function AppContent() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsCartOpen(true)}
-            className={`fixed ${selectedRestaurant ? 'bottom-6' : 'bottom-24'} right-6 z-40 bg-primary text-white p-4 rounded-full shadow-2xl shadow-primary/30 flex items-center justify-center gap-2 border border-white/10`}
+            className={`fixed ${selectedRestaurant ? 'bottom-[calc(1.5rem+env(safe-area-inset-bottom))]' : 'bottom-[calc(6rem+env(safe-area-inset-bottom))]'} right-6 z-40 bg-primary text-white p-4 rounded-full shadow-2xl shadow-primary/30 flex items-center justify-center gap-2 border border-white/10`}
           >
             <div className="relative">
               <ShoppingBag size={24} />

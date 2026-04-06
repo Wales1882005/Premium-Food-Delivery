@@ -60,6 +60,26 @@ export type OrderStatus =
 
 export type PaymentMethod = 'card' | 'wallet' | 'cod';
 
+export interface OrderItem {
+  name: string;
+  price: number;
+  quantity: number;
+}
+
+export interface OrderData {
+  id: string;
+  restaurantName: string;
+  restaurantId?: string;
+  restaurantOwnerId?: string;
+  total: number;
+  status: string;
+  createdAt: any;
+  items: string; // JSON string of OrderItem[]
+  userId?: string;
+  deliveryAddress?: string;
+  estimatedDeliveryTime?: any;
+}
+
 export interface Order {
   id: string;
   userId: string;

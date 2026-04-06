@@ -96,7 +96,7 @@ export function Search({ onSelectRestaurant, favorites, toggleFavorite }: Search
   }, [searchQuery, restaurants]);
 
   return (
-    <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8 relative min-h-screen">
+    <div className="pb-[calc(6rem+env(safe-area-inset-bottom))] pt-8 px-6 max-w-5xl mx-auto space-y-8 relative min-h-screen">
       {/* Background Food Pattern */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.03] z-0 overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full flex flex-wrap gap-20 p-10 rotate-12 scale-150">

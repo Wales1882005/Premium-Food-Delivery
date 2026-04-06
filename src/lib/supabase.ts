@@ -1,10 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://oormrkrzyycmkdffnmlc.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_ZnCSGuZupmtEqd68mczOtg_7P4hvq1o';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-  console.warn('Supabase environment variables are missing in the platform settings. Using provided fallback values.');
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn('Supabase environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) are missing. Authentication and database features will be disabled.');
+}
+
+if (supabaseAnonKey.startsWith('sb_publishable_') || supabaseAnonKey.startsWith('pk_')) {
+  console.error('CRITICAL ERROR: VITE_SUPABASE_ANON_KEY appears to be a Stripe Publishable Key. Please check your environment variables in the platform settings.');
 }
 
 console.log('Initializing Supabase with URL:', supabaseUrl);

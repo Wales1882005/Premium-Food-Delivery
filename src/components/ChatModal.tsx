@@ -51,7 +51,7 @@ export function ChatModal({ showChat, setShowChat, chatHistory, chatMessage, set
         </div>
 
         {/* Chat Input */}
-        <form onSubmit={handleSendMessage} className="p-4 border-t border-white/10 bg-zinc-800/50 flex gap-2">
+        <form onSubmit={handleSendMessage} className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4 border-t border-white/10 bg-zinc-800/50 flex gap-2">
           <input 
             type="text" 
             value={chatMessage}

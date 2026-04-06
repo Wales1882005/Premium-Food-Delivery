@@ -42,7 +42,7 @@ export function Profile(props: ProfileProps) {
   }
 
   return (
-    <div className="pb-24 pt-8 px-6 max-w-5xl mx-auto space-y-8 overflow-x-hidden">
+    <div className="pb-[calc(6rem+env(safe-area-inset-bottom))] pt-8 px-6 max-w-5xl mx-auto space-y-8 overflow-x-hidden">
       <AnimatePresence mode="wait">
         {!user ? (
           <motion.div
@@ -372,30 +372,104 @@ const RestaurantDashboardView = ({
   };
 
   useEffect(() => {
-    if (!user) return;
-    const userId = authType === 'firebase' ? (user as FirebaseUser).uid : (user as SupabaseUser).id;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     
-    const q = query(
-      collection(db, 'restaurants'),
-      where('ownerId', '==', userId)
-    );
+    setLoading(true);
+    
+    const loadingTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const restaurants = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Restaurant));
-      setMyRestaurants(restaurants);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching restaurants:", error);
-      setLoading(false);
+    let unsubscribeFirebase: (() => void) | undefined;
+    let unsubscribeSupabase: (() => void) | undefined;
+
+    if (authType === 'firebase') {
       try {
-        handleFirestoreError(error, OperationType.GET, 'restaurants');
-      } catch (e) {}
-    });
+        const userId = (user as FirebaseUser).uid;
+        const q = query(
+          collection(db, 'restaurants'),
+          where('ownerId', '==', userId)
+        );
 
-    return () => unsubscribe();
+        unsubscribeFirebase = onSnapshot(q, (snapshot) => {
+          const restaurants = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          } as Restaurant));
+          setMyRestaurants(restaurants);
+          setLoading(false);
+        }, (error) => {
+          console.error("Error fetching restaurants:", error);
+          setLoading(false);
+          try {
+            handleFirestoreError(error, OperationType.GET, 'restaurants');
+          } catch (e) {}
+        });
+      } catch (error) {
+        console.error("Error setting up Firebase listener:", error);
+        setLoading(false);
+      }
+    } else if (authType === 'supabase') {
+      const fetchSupabaseRestaurants = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('restaurants')
+            .select('*')
+            .eq('owner_id', (user as SupabaseUser).id);
+
+          if (error) {
+            console.error('Error fetching Supabase restaurants:', error);
+          } else if (data) {
+            // Map Supabase snake_case to camelCase
+            setMyRestaurants(data.map(r => ({
+              id: r.id,
+              name: r.name,
+              description: r.description,
+              image: r.image,
+              rating: r.rating,
+              deliveryTime: r.delivery_time,
+              deliveryFee: r.delivery_fee,
+              tags: r.tags,
+              ownerId: r.owner_id,
+              menu: r.menu || [],
+              promotions: r.promotions || [],
+              lat: r.lat,
+              lng: r.lng,
+              categories: r.categories || [],
+              priceRange: r.price_range || '$$'
+            })) as Restaurant[]);
+          }
+        } catch (err) {
+          console.error('Supabase restaurants fetch error:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchSupabaseRestaurants();
+
+      const channel = supabase
+        .channel('restaurants-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurants', filter: `owner_id=eq.${(user as SupabaseUser).id}` }, () => {
+          fetchSupabaseRestaurants();
+        })
+        .subscribe();
+      
+      unsubscribeSupabase = () => {
+        supabase.removeChannel(channel);
+      };
+    } else {
+      setLoading(false);
+    }
+
+    return () => {
+      clearTimeout(loadingTimeout);
+      if (unsubscribeFirebase) unsubscribeFirebase();
+      if (unsubscribeSupabase) unsubscribeSupabase();
+    };
   }, [user, authType]);
 
   const handleImageUpload = async (restaurantId: string, event: React.ChangeEvent<HTMLInputElement>) => {

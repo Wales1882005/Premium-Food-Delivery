@@ -29,7 +29,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authType, setAuthType] = useState<'firebase' | 'supabase' | null>(null);
   const [role, setRole] = useState<'customer' | 'restaurant' | 'admin'>('customer');
   const [cravePoints, setCravePoints] = useState(0);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+  const [isSupabaseReady, setIsSupabaseReady] = useState(false);
+
+  const isAuthReady = isFirebaseReady && isSupabaseReady;
 
   useEffect(() => {
     // Firebase Auth Listener
@@ -49,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               uid: currentUser.uid,
               email: currentUser.email || 'no-email@example.com',
               cravePoints: 0,
-              role: 'customer', // Default role for new users
+              role: 'customer',
               createdAt: serverTimestamp()
             };
             if (currentUser.displayName) newProfile.displayName = currentUser.displayName;
@@ -62,63 +65,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
         }
-      } else if (authType === 'firebase') {
-        setUser(null);
-        setAuthType(null);
-        setCravePoints(0);
+      } else {
+        setUser(prev => (prev && 'aud' in prev ? prev : null));
+        setAuthType(prev => (prev === 'firebase' ? null : prev));
       }
-      setIsAuthReady(true);
+      setIsFirebaseReady(true);
     });
 
     // Supabase Auth Listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const initSupabase = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         setUser(session.user);
         setAuthType('supabase');
         
-        // Fetch points from Supabase 'profiles' table
-        const { data: profile, error } = await supabase
+        const { data: profile } = await supabase
           .from('profiles')
           .select('crave_points, role')
           .eq('id', session.user.id)
           .single();
 
-        if (error && error.code !== 'PGRST116') {
-          console.error('Error fetching Supabase profile:', error);
+        if (profile) {
+          setCravePoints(profile.crave_points || 0);
+          setRole(profile.role || 'customer');
         }
+      }
+      setIsSupabaseReady(true);
+    };
+
+    initSupabase();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        setAuthType('supabase');
+        
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('crave_points, role')
+          .eq('id', session.user.id)
+          .single();
 
         if (profile) {
           setCravePoints(profile.crave_points || 0);
           setRole(profile.role || 'customer');
-        } else {
-          const userRole = session.user.user_metadata.role || 'customer';
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .insert({
-              id: session.user.id,
-              email: session.user.email,
-              display_name: session.user.user_metadata.full_name || session.user.email?.split('@')[0],
-              crave_points: 0,
-              role: userRole
-            });
-          
-          if (insertError) console.error('Error creating Supabase profile:', insertError);
-          setCravePoints(0);
-          setRole(userRole as any);
         }
-      } else if (authType === 'supabase') {
-        setUser(null);
-        setAuthType(null);
-        setCravePoints(0);
+      } else {
+        setUser(prev => (prev && 'uid' in prev ? prev : null));
+        setAuthType(prev => (prev === 'supabase' ? null : prev));
       }
-      setIsAuthReady(true);
+      setIsSupabaseReady(true);
     });
 
     return () => {
       unsubscribeFirebase();
       subscription.unsubscribe();
     };
-  }, [authType]);
+  }, []);
 
   const login = async () => {
     const provider = new GoogleAuthProvider();
