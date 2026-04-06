@@ -132,13 +132,13 @@ service cloud.firestore {
              data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100 &&
              data.items is string && data.items.size() > 0 && data.items.size() < 100000 &&
              data.total is number && data.total >= 0 &&
-             data.status in ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'on_the_way', 'delivered', 'cancelled'] &&
+             data.status in ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered', 'cancelled'] &&
              (!('deliveryAddress' in data) || (data.deliveryAddress is string && data.deliveryAddress.size() < 500)) &&
              (!('driverId' in data) || data.driverId == null || (data.driverId is string && data.driverId.size() < 100)) &&
              (!('driverName' in data) || data.driverName == null || (data.driverName is string && data.driverName.size() < 100)) &&
              (!('driverLat' in data) || (data.driverLat is number)) &&
              (!('driverLng' in data) || (data.driverLng is number)) &&
-             (!('estimatedDeliveryTime' in data) || (data.estimatedDeliveryTime is timestamp)) &&
+             (!('estimatedDeliveryTime' in data) || data.estimatedDeliveryTime == null || (data.estimatedDeliveryTime is timestamp)) &&
              data.createdAt is timestamp;
     }
 

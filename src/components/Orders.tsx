@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon, AlertCircle, Trash2 } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, Package, MessageSquare, X, ChevronDown, ChevronUp, RefreshCw, Star, Camera, Send, Map as MapIcon, AlertCircle, Trash2, Zap, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, where, limit } from 'firebase/firestore';
@@ -75,7 +75,7 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
       'Green Bowl Vegan', 'Smash & Grab Burgers', 'Midnight Cravings Desserts',
       'Sip & Chill Beverages', 'The Juice Lab', 'Boba Bliss', 'Pizza Hut Pavilion KL',
       'Midnight Cravings', 'The Burger Joint', 'Taco Bell', 'KFC', 'McDonald\'s',
-      'Starbucks', 'Subway', 'Domino\'s', 'Pizza Hut'
+      'Starbucks', 'Subway', 'Domino\'s', 'Pizza Hut', 'Sample Restaurant'
     ];
     const isSampleName = restaurantName && sampleNames.some(name => 
       restaurantName.toLowerCase().includes(name.toLowerCase())
@@ -84,7 +84,7 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     // If it's a demo order ID
     const isDemoId = restaurantId?.startsWith('demo_') || restaurantId?.startsWith('ord_') || restaurantId?.startsWith('order_');
     
-    return isSampleId || isSampleName || isDemoId;
+    return isSampleId || isSampleName || isDemoId || ownerId === 'system' || ownerId === 'admin';
   };
 
   // Performance tracking
@@ -362,7 +362,7 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     const isSample = isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName, activeOrder.restaurantOwnerId);
     
     if (!isSample) {
-      console.log('Not a sample restaurant, skipping auto-progression', activeOrder.restaurantName);
+      console.log('[Orders] Not a sample restaurant, skipping auto-progression', activeOrder.restaurantName);
       return;
     }
 
@@ -375,14 +375,13 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
     if (!nextStatus) return;
 
     // Fast progression for sample restaurants to keep user engaged
-    // 3s for pending -> confirmed, 5s for others
     const delay = activeOrder.status === 'pending' ? 3000 : 5000;
 
-    console.log(`Setting timer for auto-progression: ${activeOrder.status} -> ${nextStatus} in ${delay}ms`);
+    console.log(`[Orders] Setting timer for auto-progression: ${activeOrder.status} -> ${nextStatus} in ${delay}ms`);
 
     const timer = setTimeout(async () => {
       try {
-        console.log(`Auto-progressing order ${activeOrder.id} from ${activeOrder.status} to ${nextStatus}`);
+        console.log(`[Orders] Auto-progressing order ${activeOrder.id} from ${activeOrder.status} to ${nextStatus}`);
         
         const updateData: any = {
           status: nextStatus,
@@ -401,16 +400,16 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
             })
             .eq('id', activeOrder.id);
         }
+        console.log(`[Orders] Successfully updated order ${activeOrder.id} to ${nextStatus}`);
       } catch (err) {
-        console.error('Auto-progress error:', err);
+        console.error('[Orders] Auto-progress error:', err);
+        toast.error('Failed to update order status. Try manual simulation.');
       }
     }, delay);
 
-    // Visibility change listener to handle mobile backgrounding
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        console.log('App became visible, checking order status...');
-        // The effect will naturally re-run if needed
+        // Effect will re-run
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -618,13 +617,26 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
             <RefreshCw size={20} />
           </button>
           {isOrderActive && (
-            <button 
-              onClick={() => setShowChat(true)}
-              className="flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full font-medium hover:bg-primary/20 transition-colors"
-            >
-              <MessageSquare size={18} />
-              Chat
-            </button>
+            <div className="flex items-center gap-2">
+              {isSampleRestaurant(activeOrder.restaurantId, activeOrder.restaurantName, activeOrder.restaurantOwnerId) && (
+                <button 
+                  onClick={() => simulateOrderProgress()}
+                  disabled={isSimulating}
+                  className="flex items-center gap-2 bg-emerald-500/10 text-emerald-500 px-4 py-2 rounded-full font-medium hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
+                  title="Fast track this sample order"
+                >
+                  <Zap size={18} className={isSimulating ? 'animate-pulse' : ''} />
+                  <span className="hidden sm:inline">Fast Track</span>
+                </button>
+              )}
+              <button 
+                onClick={() => setShowChat(true)}
+                className="flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full font-medium hover:bg-primary/20 transition-colors"
+              >
+                <MessageSquare size={18} />
+                Chat
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -805,22 +817,22 @@ export function Orders({ demoOrders = [] }: OrdersProps) {
               </div>
 
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'bg-primary' : (activeOrder.status === 'confirmed' ? 'bg-primary' : 'bg-zinc-800 text-white/40')}`}>
-                  {activeOrder.status === 'confirmed' ? (
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'bg-primary' : 'bg-zinc-800 text-white/40'}`}>
+                  {activeOrder.status === 'preparing' ? (
                     <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
                   ) : (
-                    ['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? <CheckCircle2 size={20} /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />
+                    ['ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? <CheckCircle2 size={20} /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />
                   )}
                 </div>
-                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${activeOrder.status === 'confirmed' ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
-                  <h3 className={`font-bold ${activeOrder.status === 'confirmed' ? 'text-white' : (['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'text-primary' : 'text-white/40')}`}>Preparing Food</h3>
+                <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${activeOrder.status === 'preparing' ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
+                  <h3 className={`font-bold ${activeOrder.status === 'preparing' ? 'text-white' : (['ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'text-primary' : 'text-white/40')}`}>Preparing Food</h3>
                   <p className="text-sm text-white/60">Your food is being prepared.</p>
                 </div>
               </div>
 
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['picked_up', 'on_the_way'].includes(activeOrder.status) || activeOrder.status === 'delivered' ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40'}`}>
-                  {activeOrder.status === 'delivered' ? <CheckCircle2 size={20} /> : (['picked_up', 'on_the_way'].includes(activeOrder.status) ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />)}
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 ${['picked_up', 'on_the_way', 'delivered'].includes(activeOrder.status) ? 'bg-primary text-white' : 'bg-zinc-800 text-white/40'}`}>
+                  {activeOrder.status === 'on_the_way' ? <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" /> : (activeOrder.status === 'delivered' ? <CheckCircle2 size={20} /> : <div className="w-2.5 h-2.5 rounded-full bg-white/20" />)}
                 </div>
                 <div className={`w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'bg-white/10 border-primary/30 shadow-[0_0_15px_rgba(242,125,38,0.1)]' : 'bg-white/5 border-white/10'}`}>
                   <h3 className={`font-bold ${['picked_up', 'on_the_way'].includes(activeOrder.status) ? 'text-white' : (activeOrder.status === 'delivered' ? 'text-primary/60' : 'text-white/40')}`}>On the Way</h3>
